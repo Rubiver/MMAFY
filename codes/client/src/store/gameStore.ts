@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { InteractableState, RoleTeam, RoomSnapshot, Vector3Data } from "@mafia/shared";
+import type { EnvironmentState, InteractableState, RoleTeam, RoomSnapshot, Vector3Data } from "@mafia/shared";
 
 type GameStore = {
   playerPosition: Vector3Data;
@@ -9,12 +9,14 @@ type GameStore = {
   playerId?: string;
   networkError?: string;
   role?: RoleTeam;
+  environment?: EnvironmentState;
   setPlayerPosition: (position: Vector3Data) => void;
   setNearbyDevice: (device?: InteractableState) => void;
   setInteractionMessage: (message?: string) => void;
   setRoom: (room: RoomSnapshot, playerId: string) => void;
   setNetworkError: (message?: string) => void;
   setRole: (role: RoleTeam) => void;
+  setEnvironment: (environment: EnvironmentState) => void;
 };
 
 /** 화면 전용 플레이어 위치와 상호작용 안내 상태를 보관한다. */
@@ -28,4 +30,5 @@ export const useGameStore = create<GameStore>((set) => ({
   setRoom: (room, playerId) => set({ room, playerId, networkError: undefined }),
   setNetworkError: (networkError) => set({ networkError }),
   setRole: (role) => set({ role }),
+  setEnvironment: (environment) => set({ environment }),
 }));

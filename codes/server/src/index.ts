@@ -2,9 +2,11 @@ import { createServer } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { ClientMessage, ServerMessage } from "@mafia/shared";
 import { GameRoom, RoomError } from "./room.js";
+import { EnvironmentSystem } from "./environment.js";
 
 const port = Number(process.env.PORT ?? 2567);
 const room = new GameRoom("lobby-01");
+const environment = new EnvironmentSystem();
 const sockets = new Map<WebSocket, string>();
 let playerCount = 0;
 
@@ -54,6 +56,13 @@ websocketServer.on("connection", (socket) => {
         room.startVoting(requirePlayer(socket)); broadcastState();
       } else if (message.type === "VOTE") {
         room.vote(requirePlayer(socket), message.targetId); broadcastState();
+      } else if (message.type === "ENVIRONMENT") {
+        const id = requirePlayer(socket); const player = room.snapshot().players.find((item) => item.id === id); if (!player) throw new RoomError("INVALID_MESSAGE", "참가자를 찾을 수 없습니다."); const team = room.roleInfo(id).team;
+        if (message.action === "SABOTAGE") environment.sabotage(id, team, player.position, Date.now());
+        else if (message.action === "REPAIR") environment.repair(id, team, player.position, Date.now());
+        else if (message.action === "TASK") environment.completeTask(team, player.position);
+        else environment.useVent(team, player.position);
+        for (const peer of sockets.keys()) send(peer, { type: "ENVIRONMENT_STATE", environment: environment.snapshot() });
       } else if (message.type === "MOVE") {
         if (room.move(requirePlayer(socket), message.direction, message.rotation, Date.now())) broadcastState();
       } else send(socket, { type: "PONG" });
@@ -93,6 +102,7 @@ function parseMessage(raw: string): ClientMessage {
   if (value.type === "REPORT" && typeof value.bodyId === "string") return value as ClientMessage;
   if (value.type === "CALL_MEETING" || value.type === "START_VOTING") return value;
   if (value.type === "VOTE" && typeof value.targetId === "string") return value as ClientMessage;
+  if (value.type === "ENVIRONMENT" && ["SABOTAGE", "REPAIR", "VENT", "TASK"].includes(String(value.action))) return value as ClientMessage;
   if (value.type === "START_GAME" || value.type === "PING") return value;
   if (value.type === "MOVE" && value.direction && typeof value.direction === "object" && "x" in value.direction && "z" in value.direction && Number.isFinite(value.direction.x) && Number.isFinite(value.direction.z) && Number.isFinite(value.rotation) && Number.isInteger(value.sequence)) return value as ClientMessage;
   throw new RoomError("INVALID_MESSAGE", "요청 형식이 올바르지 않습니다.");

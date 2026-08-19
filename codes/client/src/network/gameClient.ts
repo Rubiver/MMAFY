@@ -41,6 +41,7 @@ export class GameClient {
   callMeeting(): void { this.send({ type: "CALL_MEETING" }); }
   startVoting(): void { this.send({ type: "START_VOTING" }); }
   vote(targetId: string | "SKIP"): void { this.send({ type: "VOTE", targetId }); }
+  environment(action: "SABOTAGE" | "REPAIR" | "VENT" | "TASK"): void { this.send({ type: "ENVIRONMENT", action }); }
 
   /** 초당 최대 15회 이동 입력을 서버로 전달한다. */
   move(direction: { x: number; z: number }, rotation: number, sequence: number): void { this.send({ type: "MOVE", direction, rotation, sequence }); }
@@ -63,6 +64,7 @@ export class GameClient {
       this.snapshot = message.snapshot;
       this.onState(message.snapshot, this.playerId);
     } else if (message.type === "ROLE") useGameStore.getState().setRole(message.team);
+    else if (message.type === "ENVIRONMENT_STATE") useGameStore.getState().setEnvironment(message.environment);
     else if (message.type === "ERROR") this.onError(message.message);
   }
 

@@ -53,6 +53,7 @@ export type ClientMessage =
   | { type: "CALL_MEETING" }
   | { type: "START_VOTING" }
   | { type: "VOTE"; targetId: string | "SKIP" }
+  | { type: "ENVIRONMENT"; action: "SABOTAGE" | "REPAIR" | "VENT" | "TASK" }
   | { type: "MOVE"; direction: { x: number; z: number }; rotation: number; sequence: number }
   | { type: "PING" };
 
@@ -61,5 +62,9 @@ export type ServerMessage =
   | { type: "WELCOME"; playerId: string; resumeToken: string; snapshot: RoomSnapshot }
   | { type: "ROOM_STATE"; snapshot: RoomSnapshot }
   | { type: "ROLE"; team: RoleTeam; mafiaIds: string[] }
+  | { type: "ENVIRONMENT_STATE"; environment: EnvironmentState }
   | { type: "ERROR"; code: "ROOM_FULL" | "INVALID_MESSAGE" | "NOT_HOST" | "NOT_READY" | "GAME_STARTED"; message: string }
   | { type: "PONG" };
+
+/** 서버가 동기화하는 환경 장치 상태다. */
+export type EnvironmentState = { blackout: boolean; generatorOnline: boolean; cctvOnline: boolean; doorLocked: boolean; taskProgress: number };
