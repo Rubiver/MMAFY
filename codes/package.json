@@ -3,12 +3,14 @@
   "private": true,
   "workspaces": [
     "client",
+    "server",
     "shared"
   ],
   "scripts": {
     "dev": "npm --workspace client run dev",
-    "test": "npm --workspace client run test",
-    "build": "npm --workspace client run build"
+    "dev:server": "npm --workspace server run dev",
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present"
   },
   "devDependencies": {
     "autoprefixer": "^10.5.4",

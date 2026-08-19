@@ -9,6 +9,7 @@ import { readMovementInput } from "./input";
 import { findNearbyInteractable } from "./interactions";
 import { movementSpeed, movementVector } from "./movement";
 import { useGameStore } from "../store/gameStore";
+import { getActiveGameClient } from "../network/gameClient";
 
 const devices: InteractableState[] = [
   { id: "generator-a", name: "발전기 A", type: "GENERATOR", position: { x: -4, y: 0, z: -5 }, interactionRange: GAME_CONFIG.interactionRange, currentState: "READY" },
@@ -60,6 +61,8 @@ function PlayerController() {
   const setNearbyDevice = useGameStore((state) => state.setNearbyDevice);
   const setInteractionMessage = useGameStore((state) => state.setInteractionMessage);
   const { camera } = useThree();
+  const lastSendAt = useRef(0);
+  const sequence = useRef(0);
 
   useEffect(() => {
     /** 키를 이동 입력 집합에 추가하고 E 상호작용을 처리한다. */
@@ -97,6 +100,11 @@ function PlayerController() {
     camera.position.set(position.x, position.y + 0.65, position.z);
     setPlayerPosition(position);
     setNearbyDevice(findNearbyInteractable(position, devices));
+    const now = performance.now();
+    if (now - lastSendAt.current >= 1000 / 15) {
+      lastSendAt.current = now;
+      getActiveGameClient()?.move({ x: velocity.x / movementSpeed(input.run || false), z: velocity.z / movementSpeed(input.run || false) }, camera.rotation.y, ++sequence.current);
+    }
   });
 
   return (
@@ -109,6 +117,23 @@ function PlayerController() {
     </RigidBody>
   );
 }
+
+/** 서버에서 전파한 다른 참가자를 부드럽게 표시한다. */
+function RemotePlayers() {
+  const players = useGameStore((state) => state.room?.players ?? []);
+  const playerId = useGameStore((state) => state.playerId);
+  return <>{players.filter((player) => player.id !== playerId && player.connected).map((player) => <RemotePlayer key={player.id} position={player.position} name={player.displayName} />)}</>;
+}
+
+/** 다른 참가자 위치를 보간해 렌더링한다. */
+function RemotePlayer({ position, name }: { position: { x: number; y: number; z: number }; name: string }) {
+  const group = useRef<THREE.Group>(null);
+  useFrame(() => { if (group.current) group.current.position.lerp(new THREE.Vector3(position.x, position.y, position.z), 0.16); });
+  return <group ref={group} position={[position.x, position.y, position.z]}><mesh castShadow><capsuleGeometry args={[0.35, 1, 8, 16]} /><meshStandardMaterial color="#65d9ff" /></mesh><HtmlLabel name={name} /></group>;
+}
+
+/** 원격 참가자의 이름을 간결하게 표시한다. */
+function HtmlLabel({ name }: { name: string }) { return <sprite position={[0, 1.2, 0]}><spriteMaterial color="#ffffff" /></sprite>; }
 
 /** 중앙홀과 발전실을 포함한 시험용 3D 맵을 렌더링한다.
  * @returns Three.js 캔버스
@@ -129,6 +154,7 @@ export function World() {
         <Block position={[-5.8, 1, -2.5]} size={[1.4, 2, 3.5]} />
         {devices.map((device) => <Device key={device.id} device={device} />)}
         <PlayerController />
+        <RemotePlayers />
       </Physics>
       <PointerLockControls />
     </Canvas>

@@ -1,10 +1,14 @@
 import { Hud } from "./ui/Hud";
 import { World } from "./game/World";
+import { Lobby } from "./ui/Lobby";
+import { useGameStore } from "./store/gameStore";
 
 /** 3D 월드와 화면 안내를 조합하는 최상위 화면이다.
  * @returns 기본 게임 화면
  */
 export function App() {
+  const gameState = useGameStore((state) => state.room?.gameState);
+  if (gameState !== "PLAYING") return <Lobby />;
   return (
     <main className="h-screen w-screen overflow-hidden bg-slate-950">
       <World />
