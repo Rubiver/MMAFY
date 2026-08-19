@@ -1,0 +1,13 @@
+# 의존성 및 빌드 산출물
+node_modules/
+dist/
+coverage/
+
+# 환경변수와 비밀값
+.env
+.env.*
+!.env.example
+
+# 도구 생성물
+*.log
+.DS_Store
