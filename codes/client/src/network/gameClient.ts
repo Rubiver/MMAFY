@@ -1,4 +1,5 @@
 import type { ClientMessage, RoomSnapshot, ServerMessage } from "@mafia/shared";
+import { useGameStore } from "../store/gameStore";
 
 type Listener = (snapshot: RoomSnapshot, playerId: string) => void;
 type ErrorListener = (message: string) => void;
@@ -35,6 +36,11 @@ export class GameClient {
 
   /** 방장 권한으로 게임 시작을 요청한다. */
   startGame(): void { this.send({ type: "START_GAME" }); }
+  setMafiaCount(count: number): void { this.send({ type: "SET_MAFIA_COUNT", count }); }
+  kill(targetId: string): void { this.send({ type: "KILL", targetId }); }
+  callMeeting(): void { this.send({ type: "CALL_MEETING" }); }
+  startVoting(): void { this.send({ type: "START_VOTING" }); }
+  vote(targetId: string | "SKIP"): void { this.send({ type: "VOTE", targetId }); }
 
   /** 초당 최대 15회 이동 입력을 서버로 전달한다. */
   move(direction: { x: number; z: number }, rotation: number, sequence: number): void { this.send({ type: "MOVE", direction, rotation, sequence }); }
@@ -56,7 +62,8 @@ export class GameClient {
     } else if (message.type === "ROOM_STATE") {
       this.snapshot = message.snapshot;
       this.onState(message.snapshot, this.playerId);
-    } else if (message.type === "ERROR") this.onError(message.message);
+    } else if (message.type === "ROLE") useGameStore.getState().setRole(message.team);
+    else if (message.type === "ERROR") this.onError(message.message);
   }
 
   /** 열려 있는 연결일 때만 요청을 보낸다. */

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { PointerLockControls } from "@react-three/drei";
 import { Physics, RigidBody, CuboidCollider, type RapierRigidBody } from "@react-three/rapier";
 import * as THREE from "three";
@@ -122,14 +122,17 @@ function PlayerController() {
 function RemotePlayers() {
   const players = useGameStore((state) => state.room?.players ?? []);
   const playerId = useGameStore((state) => state.playerId);
-  return <>{players.filter((player) => player.id !== playerId && player.connected).map((player) => <RemotePlayer key={player.id} position={player.position} name={player.displayName} />)}</>;
+  return <>{players.filter((player) => player.id !== playerId && player.connected && player.lifeState === "ALIVE").map((player) => <RemotePlayer key={player.id} playerId={player.id} position={player.position} name={player.displayName} />)}</>;
 }
 
 /** 다른 참가자 위치를 보간해 렌더링한다. */
-function RemotePlayer({ position, name }: { position: { x: number; y: number; z: number }; name: string }) {
+function RemotePlayer({ position, name, playerId }: { position: { x: number; y: number; z: number }; name: string; playerId: string }) {
   const group = useRef<THREE.Group>(null);
+  const role = useGameStore((state) => state.role);
   useFrame(() => { if (group.current) group.current.position.lerp(new THREE.Vector3(position.x, position.y, position.z), 0.16); });
-  return <group ref={group} position={[position.x, position.y, position.z]}><mesh castShadow><capsuleGeometry args={[0.35, 1, 8, 16]} /><meshStandardMaterial color="#65d9ff" /></mesh><HtmlLabel name={name} /></group>;
+  /** 마피아만 클릭한 원격 참가자 처치를 서버에 요청한다. */
+  const requestKill = (event: ThreeEvent<MouseEvent>) => { event.stopPropagation(); if (role === "MAFIA") getActiveGameClient()?.kill(playerId); };
+  return <group ref={group} position={[position.x, position.y, position.z]}><mesh castShadow onClick={requestKill}><capsuleGeometry args={[0.35, 1, 8, 16]} /><meshStandardMaterial color={role === "MAFIA" ? "#ff7d7d" : "#65d9ff"} /></mesh><HtmlLabel name={name} /></group>;
 }
 
 /** 원격 참가자의 이름을 간결하게 표시한다. */

@@ -41,6 +41,19 @@ websocketServer.on("connection", (socket) => {
       } else if (message.type === "START_GAME") {
         room.startGame(requirePlayer(socket));
         broadcastState();
+        for (const [peer, id] of sockets) send(peer, { type: "ROLE", ...room.roleInfo(id) });
+      } else if (message.type === "SET_MAFIA_COUNT") {
+        room.setMafiaCount(requirePlayer(socket), message.count); broadcastState();
+      } else if (message.type === "KILL") {
+        room.kill(requirePlayer(socket), message.targetId, Date.now()); broadcastState();
+      } else if (message.type === "REPORT") {
+        room.report(requirePlayer(socket), message.bodyId); broadcastState();
+      } else if (message.type === "CALL_MEETING") {
+        room.callMeeting(requirePlayer(socket)); broadcastState();
+      } else if (message.type === "START_VOTING") {
+        room.startVoting(requirePlayer(socket)); broadcastState();
+      } else if (message.type === "VOTE") {
+        room.vote(requirePlayer(socket), message.targetId); broadcastState();
       } else if (message.type === "MOVE") {
         if (room.move(requirePlayer(socket), message.direction, message.rotation, Date.now())) broadcastState();
       } else send(socket, { type: "PONG" });
@@ -75,6 +88,11 @@ function parseMessage(raw: string): ClientMessage {
   if (!value || typeof value !== "object" || !("type" in value) || typeof value.type !== "string") throw new RoomError("INVALID_MESSAGE", "요청 형식이 올바르지 않습니다.");
   if (value.type === "JOIN" && typeof value.displayName === "string" && (value.resumeToken === undefined || typeof value.resumeToken === "string")) return value as ClientMessage;
   if (value.type === "SET_READY" && typeof value.ready === "boolean") return value as ClientMessage;
+  if (value.type === "SET_MAFIA_COUNT" && Number.isInteger(value.count)) return value as ClientMessage;
+  if (value.type === "KILL" && typeof value.targetId === "string") return value as ClientMessage;
+  if (value.type === "REPORT" && typeof value.bodyId === "string") return value as ClientMessage;
+  if (value.type === "CALL_MEETING" || value.type === "START_VOTING") return value;
+  if (value.type === "VOTE" && typeof value.targetId === "string") return value as ClientMessage;
   if (value.type === "START_GAME" || value.type === "PING") return value;
   if (value.type === "MOVE" && value.direction && typeof value.direction === "object" && "x" in value.direction && "z" in value.direction && Number.isFinite(value.direction.x) && Number.isFinite(value.direction.z) && Number.isFinite(value.rotation) && Number.isInteger(value.sequence)) return value as ClientMessage;
   throw new RoomError("INVALID_MESSAGE", "요청 형식이 올바르지 않습니다.");

@@ -17,7 +17,10 @@ describe("GameRoom", () => {
   it("서버는 이동 시간과 속도를 제한한다", () => {
     const room = new GameRoom("test");
     room.join("host", "방장", undefined, 0);
+    room.join("other", "상대", undefined, 0);
     room.setReady("host", true);
+    room.setReady("other", true);
+    room.setMafiaCount("host", 1);
     room.startGame("host");
     room.move("host", { x: 100, z: 0 }, 0, 10_000);
     expect(room.snapshot().players[0].position.x).toBeCloseTo(0.4);
@@ -26,7 +29,10 @@ describe("GameRoom", () => {
   it("유효하지 않은 이동 값은 위치에 반영하지 않는다", () => {
     const room = new GameRoom("test");
     room.join("host", "방장", undefined, 0);
+    room.join("other", "상대", undefined, 0);
     room.setReady("host", true);
+    room.setReady("other", true);
+    room.setMafiaCount("host", 1);
     room.startGame("host");
     expect(() => room.move("host", { x: Number.NaN, z: 0 }, 0, 100)).toThrow("올바르지");
     expect(room.snapshot().players[0].position.x).toBe(0);
