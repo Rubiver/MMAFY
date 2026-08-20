@@ -20,3 +20,11 @@ export function movementVector(input: MovementInput): { x: number; z: number } {
 export function movementSpeed(running: boolean): number {
   return running ? GAME_CONFIG.runSpeed : GAME_CONFIG.walkSpeed;
 }
+
+/** 수평 카메라 전방 벡터를 원격 참가자 모델에 쓸 표준 yaw로 변환한다.
+ * @param forward 카메라의 정규화한 수평 전방 벡터
+ * @returns -파이부터 파이 사이의 yaw 값
+ */
+export function facingYaw(forward: { x: number; z: number }): number {
+  return Math.atan2(-forward.x, -forward.z);
+}

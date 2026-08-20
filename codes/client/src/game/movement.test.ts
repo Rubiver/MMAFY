@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { movementSpeed, movementVector } from "./movement";
+import { facingYaw, movementSpeed, movementVector } from "./movement";
 
 describe("이동 계산", () => {
   it("대각선 이동 속도를 정규화한다", () => {
@@ -9,5 +9,12 @@ describe("이동 계산", () => {
 
   it("달리기 속도가 걷기 속도보다 빠르다", () => {
     expect(movementSpeed(true)).toBeGreaterThan(movementSpeed(false));
+  });
+
+  it("카메라 전방 벡터를 모델 앞면 기준 yaw로 변환한다", () => {
+    expect(facingYaw({ x: 0, z: -1 })).toBeCloseTo(0);
+    expect(facingYaw({ x: 1, z: 0 })).toBeCloseTo(-Math.PI / 2);
+    // π와 -π는 같은 뒷방향이므로 표준 범위의 -π를 기대한다.
+    expect(facingYaw({ x: 0, z: 1 })).toBeCloseTo(-Math.PI);
   });
 });

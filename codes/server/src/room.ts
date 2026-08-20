@@ -1,12 +1,11 @@
-import type { GameState, NetworkPlayer, PlayerLifeState, RoleTeam, RoomSnapshot, Vector3Data } from "@mafia/shared";
+import { INITIAL_KILL_COOLDOWN_MS, INTERACTION_COLLIDERS, KILL_COOLDOWN_MS, KILL_RANGE, PLAYER_COLLISION_RADIUS, PLAYER_RUN_SPEED, PLAYER_SPAWN_POSITIONS, PLAYER_WALK_SPEED, WORLD_COLLIDERS, type GameState, type NetworkPlayer, type PlayerLifeState, type RoleTeam, type RoomSnapshot, type Vector3Data } from "@mafia/shared";
 
 export const MAX_PLAYERS = 25;
-const MOVE_SPEED = 4;
 const MAX_INPUT_INTERVAL_MS = 100;
 const RECONNECT_GRACE_MS = 30_000;
-const SPAWN_POSITION: Vector3Data = { x: 0, y: 1.4, z: 4 };
+const SPAWN_POSITION: Vector3Data = PLAYER_SPAWN_POSITIONS[0];
 
-type InternalPlayer = NetworkPlayer & { resumeToken: string; lastMoveAt: number; disconnectedAt?: number };
+type InternalPlayer = NetworkPlayer & { resumeToken: string; lastMoveAt: number; lastMoveSequence: number; killCooldownEndsAt: number; disconnectedAt?: number };
 
 /** 서버 권한형 대기실과 이동 상태를 관리한다. */
 export class GameRoom {
@@ -38,7 +37,7 @@ export class GameRoom {
     if (this.gameState !== "LOBBY") throw new RoomError("GAME_STARTED", "이미 게임이 시작되었습니다.");
     if (this.players.size >= MAX_PLAYERS) throw new RoomError("ROOM_FULL", "방 정원이 가득 찼습니다.");
     const token = crypto.randomUUID();
-    this.players.set(playerId, { id: playerId, displayName: sanitizeName(displayName), position: { ...SPAWN_POSITION }, rotation: 0, ready: false, connected: true, lifeState: "ALIVE", resumeToken: token, lastMoveAt: now });
+    this.players.set(playerId, { id: playerId, displayName: sanitizeName(displayName), position: { ...SPAWN_POSITION }, rotation: 0, ready: false, connected: true, lifeState: "ALIVE", resumeToken: token, lastMoveAt: now, lastMoveSequence: -1, killCooldownEndsAt: 0 });
     this.hostId ??= playerId;
     return { resumeToken: token, snapshot: this.snapshot() };
   }
@@ -60,13 +59,14 @@ export class GameRoom {
   }
 
   /** 준비한 참가자만 있는지 확인하고 게임을 시작한다. */
-  startGame(playerId: string): void {
+  startGame(playerId: string, now = Date.now()): void {
     if (playerId !== this.hostId) throw new RoomError("NOT_HOST", "방장만 게임을 시작할 수 있습니다.");
     const connected = [...this.players.values()].filter((player) => player.connected);
     if (connected.length === 0 || connected.some((player) => !player.ready)) throw new RoomError("NOT_READY", "접속 중인 모든 참가자가 준비해야 합니다.");
     const count = this.mafiaCount ?? recommendedMafiaCount(connected.length);
     if (count < 1 || count >= connected.length) throw new RoomError("NOT_READY", "마피아 수가 플레이 인원에 맞지 않습니다.");
-    for (const [index, player] of connected.sort((left, right) => left.id.localeCompare(right.id)).entries()) this.roles.set(player.id, index < count ? "MAFIA" : "SURVIVOR");
+    const spawnPositions = shuffleSpawnPositions();
+    for (const [index, player] of connected.sort((left, right) => left.id.localeCompare(right.id)).entries()) { const team: RoleTeam = index < count ? "MAFIA" : "SURVIVOR"; this.roles.set(player.id, team); player.position = { ...spawnPositions[index] }; player.rotation = 0; player.killCooldownEndsAt = team === "MAFIA" ? now + INITIAL_KILL_COOLDOWN_MS : 0; }
     this.gameState = "PLAYING";
   }
 
@@ -80,8 +80,9 @@ export class GameRoom {
   /** 지정 거리 안의 생존자를 처치하고 시체를 남긴다. */
   kill(playerId: string, targetId: string, now: number): void {
     const killer = this.getPlayer(playerId); const target = this.getPlayer(targetId);
-    if (this.gameState !== "PLAYING" || this.roles.get(playerId) !== "MAFIA" || killer.lifeState !== "ALIVE" || target.lifeState !== "ALIVE" || playerId === targetId || distance(killer.position, target.position) > 2) throw new RoomError("INVALID_MESSAGE", "처치 조건을 만족하지 않습니다.");
-    target.lifeState = "DEAD"; target.bodyId = `body-${target.id}-${now}`; this.checkWin();
+    if (this.gameState !== "PLAYING" || this.roles.get(playerId) !== "MAFIA" || this.roles.get(targetId) !== "SURVIVOR" || killer.lifeState !== "ALIVE" || target.lifeState !== "ALIVE" || playerId === targetId || distance(killer.position, target.position) > KILL_RANGE) throw new RoomError("INVALID_MESSAGE", "처치 조건을 만족하지 않습니다.");
+    if (now < killer.killCooldownEndsAt) throw new RoomError("INVALID_MESSAGE", "처치 재사용 대기 중입니다.");
+    killer.killCooldownEndsAt = now + KILL_COOLDOWN_MS; target.lifeState = "DEAD"; target.bodyId = `body-${target.id}-${now}`; this.checkWin();
   }
 
   /** 시체를 신고해 회의를 시작한다. */
@@ -104,17 +105,19 @@ export class GameRoom {
   }
 
   /** 입력 방향을 속도와 최대 시간 간격으로 제한해 위치에 적용한다. */
-  move(playerId: string, direction: { x: number; z: number }, rotation: number, now: number): boolean {
+  move(playerId: string, direction: { x: number; z: number }, rotation: number, run: boolean, now: number, sequence = now): Vector3Data | undefined {
     const player = this.getPlayer(playerId);
-    if (this.gameState !== "PLAYING" || !player.connected) return false;
+    if (this.gameState !== "PLAYING" || !player.connected || sequence <= player.lastMoveSequence) return undefined;
     if (!Number.isFinite(direction.x) || !Number.isFinite(direction.z) || !Number.isFinite(rotation)) throw new RoomError("INVALID_MESSAGE", "이동 입력 값이 올바르지 않습니다.");
     const elapsed = Math.min(Math.max(now - player.lastMoveAt, 0), MAX_INPUT_INTERVAL_MS) / 1000;
     player.lastMoveAt = now;
+    player.lastMoveSequence = sequence;
     const length = Math.hypot(direction.x, direction.z);
     const factor = length > 1 ? 1 / length : 1;
-    player.position = { x: player.position.x + direction.x * factor * MOVE_SPEED * elapsed, y: SPAWN_POSITION.y, z: player.position.z + direction.z * factor * MOVE_SPEED * elapsed };
-    player.rotation = Number.isFinite(rotation) ? rotation : player.rotation;
-    return true;
+    const speed = run ? PLAYER_RUN_SPEED : PLAYER_WALK_SPEED; const movement = { x: direction.x * factor * speed * elapsed, z: direction.z * factor * speed * elapsed };
+    player.position = resolveMovement(player.position, movement);
+    player.rotation = Number.isFinite(rotation) ? normalizeYaw(rotation) : player.rotation;
+    return { ...player.position };
   }
 
   /** 재접속 유예를 넘긴 참가자를 삭제한다. */
@@ -125,11 +128,14 @@ export class GameRoom {
 
   /** 클라이언트 전파용 안전한 방 상태를 만든다. */
   snapshot(): RoomSnapshot {
-    return { roomId: this.roomId, hostId: this.hostId ?? "", gameState: this.gameState, maxPlayers: MAX_PLAYERS, players: [...this.players.values()].map(({ resumeToken: _token, lastMoveAt: _lastMoveAt, disconnectedAt: _disconnectedAt, ...player }) => ({ ...player, position: { ...player.position } })), meeting: this.meeting, result: this.result };
+    return { roomId: this.roomId, hostId: this.hostId ?? "", gameState: this.gameState, maxPlayers: MAX_PLAYERS, players: [...this.players.values()].map(({ resumeToken: _token, lastMoveAt: _lastMoveAt, lastMoveSequence: _lastMoveSequence, killCooldownEndsAt: _killCooldownEndsAt, disconnectedAt: _disconnectedAt, ...player }) => ({ ...player, position: { ...player.position } })), meeting: this.meeting, result: this.result };
   }
 
   /** 본인에게만 보낼 역할과 마피아 동료 정보를 반환한다. */
   roleInfo(playerId: string): { team: RoleTeam; mafiaIds: string[] } { const team = this.roles.get(playerId) ?? "SURVIVOR"; return { team, mafiaIds: team === "MAFIA" ? [...this.roles.entries()].filter(([, value]) => value === "MAFIA").map(([id]) => id) : [] }; }
+
+  /** 지정한 마피아의 처치 재사용 대기 시간을 밀리초로 반환한다. */
+  killCooldownRemainingMs(playerId: string, now: number): number { const player = this.getPlayer(playerId); return this.roles.get(playerId) === "MAFIA" ? Math.max(0, player.killCooldownEndsAt - now) : 0; }
 
   /** 참가자 존재 여부를 검증한다. */
   private getPlayer(playerId: string): InternalPlayer {
@@ -157,3 +163,40 @@ function sanitizeName(value: string): string { return value.trim().slice(0, 16) 
 export function recommendedMafiaCount(playerCount: number): number { return Math.floor(playerCount * 0.2); }
 /** 두 위치의 수평 거리를 반환한다. */
 function distance(left: Vector3Data, right: Vector3Data): number { return Math.hypot(left.x - right.x, left.z - right.z); }
+
+/** 서버가 장애물과 겹치지 않는 권한형 이동 좌표를 계산한다.
+ * @param position 현재 위치
+ * @param movement 이번 입력에서 허용된 수평 이동량
+ * @returns 장애물 충돌을 해소한 새 위치
+ */
+function resolveMovement(position: Vector3Data, movement: { x: number; z: number }): Vector3Data {
+  const candidate = { x: position.x + movement.x, y: SPAWN_POSITION.y, z: position.z + movement.z };
+  if (isWalkable(candidate)) return candidate;
+  const xOnly = { x: candidate.x, y: SPAWN_POSITION.y, z: position.z };
+  if (isWalkable(xOnly)) return xOnly;
+  const zOnly = { x: position.x, y: SPAWN_POSITION.y, z: candidate.z };
+  return isWalkable(zOnly) ? zOnly : { x: position.x, y: SPAWN_POSITION.y, z: position.z };
+}
+
+/** 플레이어 충돌 원이 맵 충돌 상자와 겹치지 않는지 판정한다.
+ * @param position 확인할 플레이어 위치
+ * @returns 이동 가능한지 여부
+ */
+function isWalkable(position: Vector3Data): boolean {
+  return [...WORLD_COLLIDERS, ...INTERACTION_COLLIDERS].every((collider) => Math.abs(position.x - collider.position.x) > collider.size.x / 2 + PLAYER_COLLISION_RADIUS || Math.abs(position.z - collider.position.z) > collider.size.z / 2 + PLAYER_COLLISION_RADIUS);
+}
+
+/** 임의의 회전값을 원격 화면이 동일하게 해석할 수 있는 -파이부터 파이 사이 yaw로 정리한다. */
+function normalizeYaw(rotation: number): number { return ((rotation + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI; }
+
+/** 스폰 위치를 섞어 각 참가자에게 서로 다른 시작 지점을 배정한다.
+ * @returns 순서가 무작위인 안전한 스폰 위치 목록
+ */
+function shuffleSpawnPositions(): Vector3Data[] {
+  const positions = PLAYER_SPAWN_POSITIONS.map((position) => ({ ...position }));
+  for (let index = positions.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+    [positions[index], positions[randomIndex]] = [positions[randomIndex], positions[index]];
+  }
+  return positions;
+}
