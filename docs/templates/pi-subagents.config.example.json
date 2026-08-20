@@ -1,0 +1,13 @@
+{
+  "defaultSubagentContext": "fresh",
+  "parallel": {
+    "maxTasks": 3,
+    "concurrency": 1
+  },
+  "globalConcurrencyLimit": 1,
+  "maxSubagentSpawnsPerSession": 12,
+  "maxSubagentSpawnsPerRun": 6,
+  "maxSubagentDepth": 1,
+  "worktreeBaseDir": "~/.pi/worktrees",
+  "toolDescriptionMode": "compact"
+}
