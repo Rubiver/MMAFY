@@ -1,4 +1,4 @@
-import { EMERGENCY_BELL_POSITION, INITIAL_KILL_COOLDOWN_MS, INTERACTION_COLLIDERS, KILL_COOLDOWN_MS, KILL_RANGE, MEETING_DURATION_MS, PLAYER_COLLISION_RADIUS, PLAYER_RUN_SPEED, PLAYER_SPAWN_POSITIONS, PLAYER_WALK_SPEED, SECURITY_SHUTTER_COLLIDER, WORLD_COLLIDERS, type GameState, type MeetingState, type NetworkPlayer, type PlayerLifeState, type RoleTeam, type RoomSnapshot, type Vector3Data } from "@mafia/shared";
+import { EMERGENCY_BELL_POSITION, INITIAL_KILL_COOLDOWN_MS, INTERACTION_COLLIDERS, KILL_COOLDOWN_MS, KILL_RANGE, MEETING_DURATION_MS, PLAYER_COLLISION_RADIUS, PLAYER_RUN_SPEED, PLAYER_SPAWN_POSITIONS, PLAYER_WALK_SPEED, SECURITY_SHUTTER_COLLIDER, WORLD_COLLIDERS, type GameState, type MeetingResult, type MeetingState, type NetworkPlayer, type PlayerLifeState, type RoleTeam, type RoomSnapshot, type Vector3Data } from "@mafia/shared";
 
 export const MAX_PLAYERS = 25;
 const MAX_INPUT_INTERVAL_MS = 100;
@@ -15,6 +15,7 @@ export class GameRoom {
   private mafiaCount?: number;
   private readonly roles = new Map<string, RoleTeam>();
   private meeting?: MeetingState;
+  private meetingResult?: MeetingResult;
   private result?: { winner: RoleTeam; expelledId?: string };
 
   /** @param roomId 사람이 확인할 수 있는 방 식별자 */
@@ -106,11 +107,14 @@ export class GameRoom {
   callMeeting(playerId: string, now: number): void { const player = this.getPlayer(playerId); if (this.gameState !== "PLAYING" || player.lifeState !== "ALIVE" || distance(player.position, EMERGENCY_BELL_POSITION) > 2.4) throw new RoomError("INVALID_MESSAGE", "긴급 회의 종 가까이에서만 회의를 시작할 수 있습니다."); this.beginMeeting(playerId, undefined, now); }
   /** 이전 클라이언트의 투표 시작 요청은 90초 통합 회의에서 별도 상태 전환 없이 허용한다. */
   startVoting(playerId: string): void { if (this.gameState !== "MEETING" || playerId !== this.hostId) throw new RoomError("NOT_HOST", "방장만 투표를 시작할 수 있습니다."); }
-  /** 생존자의 한 표를 기록한다. 표 집계는 회의 시간이 끝날 때 서버가 확정한다. */
-  vote(playerId: string, targetId: string | "SKIP"): void {
+  /** 생존자의 한 표를 기록한다. 생존자 과반이 건너뛰기를 고르면 즉시 회의를 끝낸다. */
+  vote(playerId: string, targetId: string | "SKIP", now = Date.now()): void {
     const voter = this.getPlayer(playerId); if (this.gameState !== "MEETING" || voter.lifeState !== "ALIVE" || !this.meeting || this.meeting.votes[playerId]) throw new RoomError("INVALID_MESSAGE", "투표 조건을 만족하지 않습니다.");
-    if (targetId !== "SKIP" && (!this.players.has(targetId) || this.getPlayer(targetId).lifeState !== "ALIVE")) throw new RoomError("INVALID_MESSAGE", "투표 대상을 찾을 수 없습니다.");
+    if (targetId !== "SKIP" && !this.players.has(targetId)) throw new RoomError("INVALID_MESSAGE", "투표 대상을 찾을 수 없습니다.");
     this.meeting.votes[playerId] = targetId;
+    const aliveCount = [...this.players.values()].filter((player) => player.lifeState === "ALIVE" && player.connected).length;
+    const skipCount = Object.values(this.meeting.votes).filter((target) => target === "SKIP").length;
+    if (skipCount >= Math.floor(aliveCount / 2) + 1) this.finishVote(now, true);
   }
 
   /** 회의 중 살아 있는 참가자의 짧은 채팅을 기록한다. */
@@ -127,7 +131,11 @@ export class GameRoom {
    * @param now 현재 시각
    * @returns 상태가 변경됐는지 여부
    */
-  advance(now: number): boolean { if (this.gameState !== "MEETING" || !this.meeting || now < this.meeting.endsAt) return false; this.finishVote(); return true; }
+  advance(now: number): boolean {
+    if (this.gameState === "MEETING" && this.meeting && now >= this.meeting.endsAt) { this.finishVote(now); return true; }
+    if (this.gameState === "VOTING" && this.meetingResult && now >= this.meetingResult.endsAt) { this.completeMeetingResult(); return true; }
+    return false;
+  }
 
   /** 입력 방향을 속도와 최대 시간 간격으로 제한해 위치에 적용한다. */
   move(playerId: string, direction: { x: number; z: number }, rotation: number, run: boolean, now: number, sequence = now, shutterClosed = false, inputBlocked = false): Vector3Data | undefined {
@@ -154,7 +162,7 @@ export class GameRoom {
   /** 클라이언트 전파용 안전한 방 상태를 만든다. */
   snapshot(): RoomSnapshot {
     const meeting = this.meeting ? { ...this.meeting, votes: { ...this.meeting.votes }, messages: this.meeting.messages.map((message) => ({ ...message })) } : undefined;
-    return { roomId: this.roomId, hostId: this.hostId ?? "", gameState: this.gameState, maxPlayers: MAX_PLAYERS, players: [...this.players.values()].map(({ resumeToken: _token, lastMoveAt: _lastMoveAt, lastMoveSequence: _lastMoveSequence, killCooldownEndsAt: _killCooldownEndsAt, lastChatAt: _lastChatAt, disconnectedAt: _disconnectedAt, ...player }) => ({ ...player, position: { ...player.position } })), meeting, result: this.result };
+    return { roomId: this.roomId, hostId: this.hostId ?? "", gameState: this.gameState, maxPlayers: MAX_PLAYERS, players: [...this.players.values()].map(({ resumeToken: _token, lastMoveAt: _lastMoveAt, lastMoveSequence: _lastMoveSequence, killCooldownEndsAt: _killCooldownEndsAt, lastChatAt: _lastChatAt, disconnectedAt: _disconnectedAt, ...player }) => ({ ...player, position: { ...player.position } })), meeting, meetingResult: this.meetingResult ? { ...this.meetingResult } : undefined, result: this.result };
   }
 
   /** 본인에게만 보낼 역할과 마피아 동료 정보를 반환한다. */
@@ -173,9 +181,11 @@ export class GameRoom {
   }
 
   /** 신고자와 종료 시각을 기록하고 90초 통합 회의를 시작한다. */
-  private beginMeeting(reporterId: string, bodyId: string | undefined, now: number): void { this.meeting = { reporterId, bodyId, votes: {}, endsAt: now + MEETING_DURATION_MS, messages: [] }; this.gameState = "MEETING"; }
-  /** 투표 최다 득표자를 추방하고 승패를 확인한다. */
-  private finishVote(): void { if (!this.meeting) return; const counts = new Map<string, number>(); for (const target of Object.values(this.meeting.votes)) counts.set(target, (counts.get(target) ?? 0) + 1); const top = [...counts.entries()].sort((a, b) => b[1] - a[1]); const expelled = top.length && (top.length === 1 || top[0][1] > top[1][1]) && top[0][0] !== "SKIP" ? top[0][0] : undefined; if (expelled) { const player = this.getPlayer(expelled); player.lifeState = "GHOST"; player.bodyId = undefined; } this.result = this.result ?? undefined; this.meeting = undefined; this.gameState = "PLAYING"; this.checkWin(expelled); }
+  private beginMeeting(reporterId: string, bodyId: string | undefined, now: number): void { this.meeting = { reporterId, bodyId, votes: {}, endsAt: now + MEETING_DURATION_MS, messages: [] }; this.meetingResult = undefined; this.gameState = "MEETING"; }
+  /** 표를 집계해 건너뛰기 또는 처형 결과를 3초간 전파한다. */
+  private finishVote(now: number, forcedSkip = false): void { if (!this.meeting) return; const counts = new Map<string, number>(); for (const target of Object.values(this.meeting.votes)) counts.set(target, (counts.get(target) ?? 0) + 1); const top = [...counts.entries()].sort((a, b) => b[1] - a[1]); const expelled = !forcedSkip && top.length && (top.length === 1 || top[0][1] > top[1][1]) && top[0][0] !== "SKIP" ? top[0][0] : undefined; this.meeting = undefined; this.meetingResult = { type: expelled ? "EXPEL" : "SKIP", expelledId: expelled, endsAt: now + 3_000 }; this.gameState = "VOTING"; }
+  /** 결과 연출 시간이 끝나면 처형과 승패 판정을 서버에서 확정한다. */
+  private completeMeetingResult(): void { const expelled = this.meetingResult?.expelledId; if (expelled) { const player = this.getPlayer(expelled); player.lifeState = "GHOST"; player.bodyId = undefined; } this.meetingResult = undefined; this.gameState = "PLAYING"; this.checkWin(expelled); }
   /** 남은 생존자와 마피아 수로 승패를 확정한다. */
   private checkWin(expelledId?: string): void { const alive = [...this.players.values()].filter((player) => player.lifeState === "ALIVE"); const mafia = alive.filter((player) => this.roles.get(player.id) === "MAFIA"); if (mafia.length === 0 || mafia.length >= alive.length - mafia.length) { this.result = { winner: mafia.length === 0 ? "SURVIVOR" : "MAFIA", expelledId }; this.gameState = "GAME_OVER"; } }
 }

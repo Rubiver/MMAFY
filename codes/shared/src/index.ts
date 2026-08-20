@@ -125,6 +125,8 @@ export type NetworkPlayer = {
 
 /** 회의 중 서버가 모든 참가자에게 전파하는 채팅 한 건이다. */
 export type MeetingChatMessage = { id: string; playerId: string; displayName: string; text: string; sentAt: number };
+/** 회의 종료 직전에 모든 참가자에게 보여 줄 서버 확정 결과다. */
+export type MeetingResult = { type: "SKIP" | "EXPEL"; expelledId?: string; endsAt: number };
 
 /** 신고 또는 긴급 회의의 서버 권한 상태다. */
 export type MeetingState = { reporterId: string; bodyId?: string; votes: Record<string, string | "SKIP">; endsAt: number; messages: MeetingChatMessage[] };
@@ -137,6 +139,7 @@ export type RoomSnapshot = {
   maxPlayers: number;
   players: NetworkPlayer[];
   meeting?: MeetingState;
+  meetingResult?: MeetingResult;
   result?: { winner: RoleTeam; expelledId?: string };
 };
 
