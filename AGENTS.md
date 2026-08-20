@@ -6,6 +6,10 @@
 
 작업 전 반드시 [docs/RULES.md](docs/RULES.md)를 읽는다. 제품 목표는 [docs/PRD.md](docs/PRD.md), 기술 설계는 [docs/DETAIL_SPEC.md](docs/DETAIL_SPEC.md), 구현 순서는 `docs/phases/`의 각 문서에서 확인한다.
 
+## 세션 시작 확인
+
+세션을 시작하면 작업 전 `git status`로 기존 미커밋 변경을 확인하고, Playwright MCP 연결 상태를 확인한다. 웹 화면 변경이 있으면 Playwright MCP로 375px·768px·1280px 전체 화면을 검증하고 스크린샷을 `docs/screenshots/`에 저장한다. 검증 뒤에는 MCP 탭과 MCP 전용 Chrome 프로세스만 종료한다.
+
 ## 저장소 구조
 
 ```text
@@ -35,4 +39,5 @@ codes/                     실제 소스 코드만 두는 위치
 - 클라이언트 입력은 신뢰하지 않고 서버가 거리, 권한, 상태, 쿨타임을 검증한다.
 - 화면이 바뀌는 웹 작업은 Playwright MCP로 전체 화면을 촬영해 검증한다.
 - 각 단계 종료 시 체크리스트, 로그, `resume.md`를 갱신하고 한국어 커밋을 남긴다.
+- 개선 또는 수정 완료 때마다 관련 변경만 즉시 한국어 커밋으로 남기며, 작업 시작 전 `git status`로 미커밋 변경을 확인한다. 세부 절차는 `docs/RULES.md`를 따른다.
 - 모호하거나 설계에 큰 영향을 주는 사항은 추정하지 말고 사용자에게 확인한다.

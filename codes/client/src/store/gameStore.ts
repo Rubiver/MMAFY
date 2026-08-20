@@ -9,14 +9,21 @@ type GameStore = {
   playerId?: string;
   networkError?: string;
   role?: RoleTeam;
+  mafiaIds: string[];
   environment?: EnvironmentState;
+  killCooldownUntil?: number;
+  aimedKillTargetId?: string;
+  repairProgress: number;
   setPlayerPosition: (position: Vector3Data) => void;
   setNearbyDevice: (device?: InteractableState) => void;
   setInteractionMessage: (message?: string) => void;
   setRoom: (room: RoomSnapshot, playerId: string) => void;
   setNetworkError: (message?: string) => void;
-  setRole: (role: RoleTeam) => void;
+  setRole: (role: RoleTeam, mafiaIds: string[]) => void;
   setEnvironment: (environment: EnvironmentState) => void;
+  setKillCooldown: (remainingMs: number) => void;
+  setAimedKillTarget: (playerId?: string) => void;
+  setRepairProgress: (progress: number) => void;
 };
 
 /** 화면 전용 플레이어 위치와 상호작용 안내 상태를 보관한다. */
@@ -29,6 +36,11 @@ export const useGameStore = create<GameStore>((set) => ({
   setInteractionMessage: (interactionMessage) => set({ interactionMessage }),
   setRoom: (room, playerId) => set({ room, playerId, networkError: undefined }),
   setNetworkError: (networkError) => set({ networkError }),
-  setRole: (role) => set({ role }),
+  mafiaIds: [],
+  repairProgress: 0,
+  setRole: (role, mafiaIds) => set({ role, mafiaIds }),
   setEnvironment: (environment) => set({ environment }),
+  setKillCooldown: (remainingMs) => set({ killCooldownUntil: Date.now() + remainingMs }),
+  setAimedKillTarget: (aimedKillTargetId) => set({ aimedKillTargetId }),
+  setRepairProgress: (repairProgress) => set({ repairProgress: Math.min(1, Math.max(0, repairProgress)) }),
 }));
