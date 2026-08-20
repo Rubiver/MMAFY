@@ -17,6 +17,7 @@ export function getActiveGameClient(): GameClient | undefined { return activeCli
 export class GameClient {
   private socket?: WebSocket;
   private playerId = "";
+  private roomClosed = false;
   private resumeToken = localStorage.getItem(RESUME_TOKEN_KEY) ?? undefined;
   private roomCode = localStorage.getItem(ROOM_CODE_KEY) ?? undefined;
 
@@ -32,6 +33,8 @@ export class GameClient {
   hasSavedSession(): boolean { return Boolean(this.roomCode && localStorage.getItem(DISPLAY_NAME_KEY)); }
   /** 준비 상태 변경을 서버에 요청한다. */
   setReady(ready: boolean): void { this.send({ type: "SET_READY", ready }); }
+  /** 방장 권한으로 현재 방을 닫고 저장된 재접속 정보를 지운다. */
+  deleteRoom(): void { this.send({ type: "DELETE_ROOM" }); }
   startGame(): void { this.send({ type: "START_GAME" }); }
   setMafiaCount(count: number): void { this.send({ type: "SET_MAFIA_COUNT", count }); }
   kill(targetId: string): void { this.send({ type: "KILL", targetId }); }
@@ -48,11 +51,11 @@ export class GameClient {
 
   /** WebSocket을 열고 최초 입장 메시지를 보낸다. */
   private open(displayName: string, message: Extract<ClientMessage, { type: "CREATE_ROOM" | "JOIN" }>): void {
-    this.socket?.close(); localStorage.setItem(DISPLAY_NAME_KEY, displayName);
+    this.socket?.close(); this.roomClosed = false; localStorage.setItem(DISPLAY_NAME_KEY, displayName);
     this.socket = new WebSocket(import.meta.env.VITE_GAME_SERVER_URL ?? "ws://localhost:2567");
     this.socket.addEventListener("open", () => this.send(message));
     this.socket.addEventListener("message", (event) => this.handleMessage(JSON.parse(String(event.data)) as ServerMessage));
-    this.socket.addEventListener("close", () => this.onError("서버 연결이 끊겼습니다. 다시 연결해 주세요."));
+    this.socket.addEventListener("close", () => { if (!this.roomClosed) this.onError("서버 연결이 끊겼습니다. 다시 연결해 주세요."); });
     this.socket.addEventListener("error", () => this.onError("게임 서버에 연결할 수 없습니다. 서버를 먼저 실행해 주세요."));
   }
   /** 서버 메시지별로 방·역할·환경 상태를 갱신한다. */
@@ -63,8 +66,11 @@ export class GameClient {
     else if (message.type === "KILL_COOLDOWN") useGameStore.getState().setKillCooldown(message.remainingMs);
     else if (message.type === "ROLE") useGameStore.getState().setRole(message.team, message.mafiaIds);
     else if (message.type === "ENVIRONMENT_STATE") useGameStore.getState().setEnvironment(message.environment);
+    else if (message.type === "ROOM_CLOSED") { this.roomClosed = true; this.clearSavedSession(); useGameStore.setState({ room: undefined, playerId: undefined, role: undefined, mafiaIds: [], environment: undefined, networkError: message.message }); }
     else if (message.type === "ERROR") this.onError(message.message);
   }
   /** 열려 있는 연결일 때만 요청을 전송한다. */
   private send(message: ClientMessage): void { if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify(message)); }
+  /** 방이 사라졌을 때 자동 재접속을 막기 위해 로컬 정보를 정리한다. */
+  private clearSavedSession(): void { this.roomCode = undefined; this.resumeToken = undefined; localStorage.removeItem(ROOM_CODE_KEY); localStorage.removeItem(RESUME_TOKEN_KEY); }
 }

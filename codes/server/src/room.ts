@@ -42,13 +42,16 @@ export class GameRoom {
     return { resumeToken: token, snapshot: this.snapshot() };
   }
 
-  /** 연결이 끊긴 참가자를 재접속 유예 상태로 표시한다. */
-  disconnect(playerId: string, now: number): void {
+  /** 연결이 끊긴 참가자를 재접속 유예 상태로 표시한다.
+   * @returns 연결이 끊긴 참가자가 방장이었는지 여부
+   */
+  disconnect(playerId: string, now: number): boolean {
     const player = this.players.get(playerId);
-    if (!player) return;
+    if (!player) return false;
+    const wasHost = this.hostId === playerId;
     player.connected = false;
     player.disconnectedAt = now;
-    if (this.hostId === playerId) this.hostId = this.firstConnectedId();
+    return wasHost;
   }
 
   /** 준비 상태를 바꾼다. @throws 존재하지 않는 참가자 */
@@ -145,7 +148,7 @@ export class GameRoom {
   /** 재접속 유예를 넘긴 참가자를 삭제한다. */
   pruneDisconnected(now: number): void {
     for (const player of this.players.values()) if (player.disconnectedAt && now - player.disconnectedAt > RECONNECT_GRACE_MS) this.players.delete(player.id);
-    if (this.hostId && !this.players.has(this.hostId)) this.hostId = this.firstConnectedId();
+    if (this.hostId && !this.players.has(this.hostId)) this.hostId = undefined;
   }
 
   /** 클라이언트 전파용 안전한 방 상태를 만든다. */
@@ -169,8 +172,6 @@ export class GameRoom {
     return player;
   }
 
-  /** 다음 방장을 찾는다. */
-  private firstConnectedId(): string | undefined { return [...this.players.values()].find((player) => player.connected)?.id; }
   /** 신고자와 종료 시각을 기록하고 90초 통합 회의를 시작한다. */
   private beginMeeting(reporterId: string, bodyId: string | undefined, now: number): void { this.meeting = { reporterId, bodyId, votes: {}, endsAt: now + MEETING_DURATION_MS, messages: [] }; this.gameState = "MEETING"; }
   /** 투표 최다 득표자를 추방하고 승패를 확인한다. */
@@ -185,7 +186,9 @@ export class RoomError extends Error {
 }
 
 /** 표시 이름을 화면과 로그에 안전한 길이로 정리한다. */
-function sanitizeName(value: string): string { return value.trim().slice(0, 16) || "이름 없는 참가자"; }
+function sanitizeName(value: string): string { return value.trim().slice(0, 16) || randomDisplayName(); }
+/** 이름을 비운 참가자에게 표시할 친근한 무작위 별명을 만든다. */
+function randomDisplayName(): string { const adjectives = ["배고픈", "화난", "졸린", "용감한", "재빠른", "호기심 많은"]; const animals = ["비버", "토끼", "수달", "너구리", "부엉이", "고슴도치"]; return `${adjectives[Math.floor(Math.random() * adjectives.length)]} ${animals[Math.floor(Math.random() * animals.length)]}`; }
 /** 채팅 본문을 공백 정리와 최대 길이 제한으로 안전하게 만든다. */
 function sanitizeChat(value: string): string { return value.trim().slice(0, 160); }
 /** 플레이 인원의 20%를 내림한 추천 마피아 수를 반환한다. */

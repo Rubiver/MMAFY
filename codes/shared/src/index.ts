@@ -145,6 +145,7 @@ export type ClientMessage =
   | { type: "CREATE_ROOM"; displayName: string }
   | { type: "JOIN"; displayName: string; roomCode: string; resumeToken?: string }
   | { type: "SET_READY"; ready: boolean }
+  | { type: "DELETE_ROOM" }
   | { type: "START_GAME" }
   | { type: "SET_MAFIA_COUNT"; count: number }
   | { type: "KILL"; targetId: string }
@@ -165,6 +166,7 @@ export type ServerMessage =
   | { type: "KILL_COOLDOWN"; remainingMs: number }
   | { type: "ROLE"; team: RoleTeam; mafiaIds: string[] }
   | { type: "ENVIRONMENT_STATE"; environment: EnvironmentState }
+  | { type: "ROOM_CLOSED"; message: string }
   | { type: "ERROR"; code: "ROOM_FULL" | "INVALID_MESSAGE" | "NOT_HOST" | "NOT_READY" | "GAME_STARTED"; message: string }
   | { type: "PONG" };
 

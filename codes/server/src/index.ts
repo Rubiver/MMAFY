@@ -21,6 +21,8 @@ function broadcastState(roomCode: string): void { const entry = getRoom(roomCode
 function broadcastEnvironment(roomCode: string): void { const entry = getRoom(roomCode); const message: ServerMessage = { type: "ENVIRONMENT_STATE", environment: entry.environment.snapshot() }; for (const [socket, item] of sockets) if (item.roomCode === roomCode) send(socket, message); }
 /** 직렬화 가능한 서버 메시지를 안전하게 전송한다. */
 function send(socket: WebSocket, message: ServerMessage): void { if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message)); }
+/** 방장 퇴장 또는 삭제 요청 때 모든 참가자에게 종료를 알리고 방을 제거한다. */
+function closeRoom(roomCode: string, message: string): void { for (const [socket, session] of sockets) if (session.roomCode === roomCode) { send(socket, { type: "ROOM_CLOSED", message }); sockets.delete(socket); if (socket.readyState === socket.OPEN) socket.close(); } rooms.delete(roomCode); }
 
 websocketServer.on("connection", (socket) => {
   const playerId = `player-${++playerCount}`;
@@ -33,6 +35,7 @@ websocketServer.on("connection", (socket) => {
       else {
         const session = requireSession(socket); const entry = getRoom(session.roomCode); const room = entry.room; const now = Date.now();
         if (message.type === "SET_READY") { room.setReady(session.playerId, message.ready); broadcastState(session.roomCode); }
+        else if (message.type === "DELETE_ROOM") { if (room.snapshot().hostId !== session.playerId) throw new RoomError("NOT_HOST", "방장만 방을 삭제할 수 있습니다."); closeRoom(session.roomCode, "방장이 방을 삭제했습니다."); }
         else if (message.type === "START_GAME") { entry.environment.reset(); room.startGame(session.playerId, now); broadcastState(session.roomCode); broadcastEnvironment(session.roomCode); for (const [peer, item] of sockets) if (item.roomCode === session.roomCode) { send(peer, { type: "ROLE", ...room.roleInfo(item.playerId) }); sendKillCooldown(peer, room, item.playerId, now); } }
         else if (message.type === "SET_MAFIA_COUNT") { room.setMafiaCount(session.playerId, message.count); broadcastState(session.roomCode); }
         else if (message.type === "KILL") { room.kill(session.playerId, message.targetId, now); sendKillCooldown(socket, room, session.playerId, now); broadcastState(session.roomCode); }
@@ -47,7 +50,7 @@ websocketServer.on("connection", (socket) => {
       }
     } catch (error) { const roomError = error instanceof RoomError ? error : new RoomError("INVALID_MESSAGE", "요청 형식이 올바르지 않습니다."); send(socket, { type: "ERROR", code: roomError.code, message: roomError.message }); }
   });
-  socket.on("close", () => { const session = sockets.get(socket); sockets.delete(socket); if (session) { const entry = rooms.get(session.roomCode); if (entry) { entry.room.disconnect(session.playerId, Date.now()); broadcastState(session.roomCode); } } });
+  socket.on("close", () => { const session = sockets.get(socket); sockets.delete(socket); if (session) { const entry = rooms.get(session.roomCode); if (entry) { if (entry.room.disconnect(session.playerId, Date.now())) closeRoom(session.roomCode, "방장이 나가 방이 사라졌습니다."); else broadcastState(session.roomCode); } } });
 });
 
 /** 방 입장 또는 재접속을 처리하고 해당 방 상태를 전파한다. */
@@ -75,7 +78,7 @@ function parseMessage(raw: string): ClientMessage {
   if (value.type === "SET_MAFIA_COUNT" && Number.isInteger(value.count)) return value as ClientMessage;
   if (value.type === "KILL" && typeof value.targetId === "string") return value as ClientMessage;
   if (value.type === "REPORT" && typeof value.bodyId === "string") return value as ClientMessage;
-  if (value.type === "CALL_MEETING" || value.type === "START_VOTING" || value.type === "START_GAME" || value.type === "PING") return value;
+  if (value.type === "CALL_MEETING" || value.type === "START_VOTING" || value.type === "START_GAME" || value.type === "DELETE_ROOM" || value.type === "PING") return value;
   if (value.type === "VOTE" && typeof value.targetId === "string") return value as ClientMessage;
   if (value.type === "CHAT" && typeof value.text === "string") return value as ClientMessage;
   if (value.type === "ENVIRONMENT" && ["SABOTAGE", "REPAIR_START", "REPAIR_COMPLETE", "REPAIR_CANCEL", "VENT", "TASK", "DOOR_TOGGLE", "DOOR_LOCK", "CCTV_OPEN", "CCTV_CLOSE"].includes(String(value.action)) && (value.deviceId === undefined || value.deviceId === "generator-a" || value.deviceId === "generator-b") && (value.puzzle === undefined || Array.isArray(value.puzzle) && value.puzzle.every((item) => typeof item === "string") && value.puzzle.length <= 8)) return value as ClientMessage;

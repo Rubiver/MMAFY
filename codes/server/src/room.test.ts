@@ -197,11 +197,19 @@ describe("GameRoom", () => {
     expect(room.snapshot().players[0].displayName).toBe("복귀");
   });
 
-  it("방장이 연결을 끊어도 방을 유지하고 다음 참가자에게 방장을 넘긴다", () => {
+  it("빈 표시 이름에는 친근한 무작위 별명을 부여한다", () => {
+    const room = new GameRoom("test");
+    const random = vi.spyOn(Math, "random").mockReturnValue(0);
+    room.join("host", "", undefined, 0);
+    random.mockRestore();
+    expect(room.snapshot().players[0].displayName).toBe("배고픈 비버");
+  });
+
+  it("방장이 연결을 끊으면 서버가 방 삭제 여부를 알 수 있게 한다", () => {
     const room = new GameRoom("test");
     room.join("host", "방장", undefined, 0);
     room.join("other", "상대", undefined, 0);
-    room.disconnect("host", 100);
-    expect(room.snapshot()).toMatchObject({ hostId: "other", players: [{ id: "host", connected: false }, { id: "other", connected: true }] });
+    expect(room.disconnect("host", 100)).toBe(true);
+    expect(room.snapshot()).toMatchObject({ hostId: "host", players: [{ id: "host", connected: false }, { id: "other", connected: true }] });
   });
 });
