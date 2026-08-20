@@ -1,5 +1,5 @@
-import { CCTV_CONSOLE_POSITION, CIRCUIT_PANEL_POSITION, GENERATOR_POSITIONS, REPAIR_HOLD_DURATION_MS, SECURITY_SHUTTER_POSITION, VENT_ENTRANCE_POSITION, VENT_EXIT_POSITION, type EnvironmentState, type GeneratorId, type RoleTeam, type Vector3Data } from "@mafia/shared";
-const INITIAL_STATE: EnvironmentState = { blackout: false, generatorOnline: true, generators: { "generator-a": true, "generator-b": true }, cctvOnline: true, doorLocked: false, doorState: "OPEN", taskProgress: 0 };
+import { CCTV_CONSOLE_POSITION, CIRCUIT_PANEL_POSITION, COMMUNICATIONS_CONSOLE_POSITION, GENERATOR_POSITIONS, REPAIR_HOLD_DURATION_MS, SECURITY_SHUTTER_POSITION, VENT_ENTRANCE_POSITION, VENT_EXIT_POSITION, type EnvironmentState, type GeneratorId, type RoleTeam, type Vector3Data } from "@mafia/shared";
+const INITIAL_STATE: EnvironmentState = { blackout: false, generatorOnline: true, generators: { "generator-a": true, "generator-b": true }, cctvOnline: true, communicationsOnline: true, doorLocked: false, doorState: "OPEN", taskProgress: 0 };
 const CIRCUIT_ORDER = ["AMBER", "CYAN", "VIOLET"] as const;
 
 /** 환경 장치의 거리, 역할, 쿨타임을 서버에서 검증한다. */
@@ -19,7 +19,7 @@ export class EnvironmentSystem {
   /** 시민이 발전기 근처에서 복구 버튼 유지를 시작한다. */
   startRepair(playerId: string, team: RoleTeam, generatorId: GeneratorId, position: Vector3Data, now: number): void { this.require(team === "SURVIVOR" && this.state.blackout && !this.state.generators[generatorId] && near(position, GENERATOR_POSITIONS[generatorId]), "복구 시작 조건을 만족하지 않습니다."); this.repairStarts.set(playerId, now); }
   /** 시민이 3초간 복구 버튼을 유지했는지 확인하고 정전을 해제한다. */
-  completeRepair(playerId: string, team: RoleTeam, generatorId: GeneratorId, position: Vector3Data, now: number): void { const startedAt = this.repairStarts.get(playerId); this.require(team === "SURVIVOR" && this.state.blackout && !this.state.generators[generatorId] && startedAt !== undefined && now - startedAt >= REPAIR_HOLD_DURATION_MS && near(position, GENERATOR_POSITIONS[generatorId]), "복구 조건을 만족하지 않습니다."); this.repairStarts.delete(playerId); this.state.generators[generatorId] = true; this.state.blackout = false; this.state.generatorOnline = true; this.state.cctvOnline = true; }
+  completeRepair(playerId: string, team: RoleTeam, generatorId: GeneratorId, position: Vector3Data, now: number): void { const startedAt = this.repairStarts.get(playerId); this.require(team === "SURVIVOR" && this.state.blackout && !this.state.generators[generatorId] && startedAt !== undefined && now - startedAt >= REPAIR_HOLD_DURATION_MS && near(position, GENERATOR_POSITIONS[generatorId]), "복구 조건을 만족하지 않습니다."); this.repairStarts.delete(playerId); this.state.generators[generatorId] = true; this.state.blackout = false; this.state.generatorOnline = true; this.state.cctvOnline = this.state.communicationsOnline; }
   /** 버튼을 놓거나 취소한 시민의 복구 진행 상태를 제거한다. */
   cancelRepair(playerId: string): void { this.repairStarts.delete(playerId); }
   /** 마피아 전용 환풍구 이동 권한을 검증한다. */
@@ -28,6 +28,10 @@ export class EnvironmentSystem {
   toggleDoor(team: RoleTeam, position: Vector3Data): void { this.require(team === "SURVIVOR" && near(position, SECURITY_SHUTTER_POSITION) && this.state.doorState !== "LOCKED", "셔터 개폐 조건을 만족하지 않습니다."); this.state.doorState = this.state.doorState === "OPEN" ? "CLOSED" : "OPEN"; this.state.doorLocked = false; }
   /** 마피아가 닫힌 셔터를 잠가 시민을 고립시킨다. */
   lockDoor(team: RoleTeam, position: Vector3Data): void { this.require(team === "MAFIA" && near(position, SECURITY_SHUTTER_POSITION) && this.state.doorState === "CLOSED", "셔터 잠금 조건을 만족하지 않습니다."); this.state.doorState = "LOCKED"; this.state.doorLocked = true; }
+  /** 마피아가 원격으로 통신을 끊어 CCTV와 회의 채팅을 제한한다. */
+  sabotageCommunications(playerId: string, team: RoleTeam, now: number): void { this.require(team === "MAFIA" && this.state.communicationsOnline && this.ready(playerId, now), "통신 장애 조건을 만족하지 않습니다."); this.state.communicationsOnline = false; this.state.cctvOnline = false; this.cctvOperators.clear(); }
+  /** 시민이 통신실 장치 가까이에서 통신을 복구한다. */
+  repairCommunications(team: RoleTeam, position: Vector3Data): void { this.require(team === "SURVIVOR" && !this.state.communicationsOnline && near(position, COMMUNICATIONS_CONSOLE_POSITION), "통신 복구 조건을 만족하지 않습니다."); this.state.communicationsOnline = true; this.state.cctvOnline = this.state.generatorOnline; }
   /** 시민이 전력이 정상인 관제실 조작대에서 CCTV 관제를 시작한다. */
   startCctv(playerId: string, team: RoleTeam, position: Vector3Data): void { this.require(team === "SURVIVOR" && this.state.cctvOnline && near(position, CCTV_CONSOLE_POSITION), "CCTV 관제 조건을 만족하지 않습니다."); this.cctvOperators.add(playerId); }
   /** 참가자가 CCTV 관제를 닫아 다시 이동할 수 있게 한다. */

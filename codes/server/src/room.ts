@@ -94,7 +94,7 @@ export class GameRoom {
     const killer = this.getPlayer(playerId); const target = this.getPlayer(targetId);
     if (this.gameState !== "PLAYING" || this.roles.get(playerId) !== "MAFIA" || this.roles.get(targetId) !== "SURVIVOR" || killer.lifeState !== "ALIVE" || target.lifeState !== "ALIVE" || playerId === targetId || distance(killer.position, target.position) > KILL_RANGE) throw new RoomError("INVALID_MESSAGE", "처치 조건을 만족하지 않습니다.");
     if (now < killer.killCooldownEndsAt) throw new RoomError("INVALID_MESSAGE", "처치 재사용 대기 중입니다.");
-    killer.killCooldownEndsAt = now + KILL_COOLDOWN_MS; target.lifeState = "DEAD"; target.bodyId = `body-${target.id}-${now}`;
+    killer.killCooldownEndsAt = now + KILL_COOLDOWN_MS; target.lifeState = "DEAD"; target.bodyId = `body-${target.id}-${now}`; this.checkMafiaWin();
   }
 
   /** 시체를 신고해 회의를 시작한다. */
@@ -188,6 +188,8 @@ export class GameRoom {
   private finishVote(now: number, forcedSkip = false): void { if (!this.meeting) return; const counts = new Map<string, number>(); for (const target of Object.values(this.meeting.votes)) counts.set(target, (counts.get(target) ?? 0) + 1); const top = [...counts.entries()].sort((a, b) => b[1] - a[1]); const expelled = !forcedSkip && top.length && (top.length === 1 || top[0][1] > top[1][1]) && top[0][0] !== "SKIP" ? top[0][0] : undefined; this.meeting = undefined; this.meetingResult = { type: expelled ? "EXPEL" : "SKIP", expelledId: expelled, endsAt: now + 3_000 }; this.gameState = "VOTING"; }
   /** 결과 연출 시간이 끝나면 처형을 확정하고 회의 전 위치에서 게임을 재개한다. */
   private completeMeetingResult(): void { const expelled = this.meetingResult?.expelledId; if (expelled) { const player = this.getPlayer(expelled); player.lifeState = "GHOST"; player.bodyId = undefined; } for (const player of this.players.values()) { const position = this.meetingPositions.get(player.id); if (position) player.position = { ...position }; } this.meetingPositions.clear(); this.meetingResult = undefined; this.gameState = "PLAYING"; }
+  /** 살아 있는 마피아가 시민 수와 같거나 많아지면 마피아 승리를 확정한다. */
+  private checkMafiaWin(): void { const alive = [...this.players.values()].filter((player) => player.lifeState === "ALIVE"); const mafia = alive.filter((player) => this.roles.get(player.id) === "MAFIA"); const survivors = alive.length - mafia.length; if (mafia.length > 0 && mafia.length >= survivors) { this.result = { winner: "MAFIA" }; this.gameState = "GAME_OVER"; } }
 }
 
 /** 방 규칙 검증 실패를 클라이언트 오류로 변환한다. */

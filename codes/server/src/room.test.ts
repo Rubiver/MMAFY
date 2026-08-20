@@ -135,7 +135,15 @@ describe("GameRoom", () => {
     expect(room.snapshot().meeting).toMatchObject({ reporterId: "host", bodyId });
   });
 
-  it("처치 직후에는 시체 신고 기회를 위해 회의나 결과 화면으로 바꾸지 않는다", () => {
+  it("살아 있는 마피아 수가 시민 수와 같아지면 마피아가 승리한다", () => {
+    const room = new GameRoom("test");
+    room.join("host", "마피아", undefined, 0); room.join("survivor", "시민", undefined, 0);
+    room.setReady("host", true); room.setReady("survivor", true); room.setMafiaCount("host", 1); room.startGame("host", 0);
+    room.teleport("host", { x: 0, y: 1.4, z: 0 }); room.teleport("survivor", { x: 1, y: 1.4, z: 0 }); room.kill("host", "survivor", 20_000);
+    expect(room.snapshot()).toMatchObject({ gameState: "GAME_OVER", result: { winner: "MAFIA" } });
+  });
+
+  it("마피아가 마지막 시민을 처치해 동수가 되면 즉시 승리한다", () => {
     const room = new GameRoom("test");
     room.join("host", "마피아", undefined, 0);
     room.join("survivor", "시민", undefined, 0);
@@ -143,7 +151,7 @@ describe("GameRoom", () => {
     room.startGame("host", 0);
     room.teleport("host", { x: 0, y: 1.4, z: 0 }); room.teleport("survivor", { x: 1, y: 1.4, z: 0 });
     room.kill("host", "survivor", 20_000);
-    expect(room.snapshot()).toMatchObject({ gameState: "PLAYING", players: expect.arrayContaining([expect.objectContaining({ id: "survivor", lifeState: "DEAD", bodyId: expect.any(String) })]) });
+    expect(room.snapshot()).toMatchObject({ gameState: "GAME_OVER", result: { winner: "MAFIA" }, players: expect.arrayContaining([expect.objectContaining({ id: "survivor", lifeState: "DEAD", bodyId: expect.any(String) })]) });
   });
 
   it("사망한 시민의 이동 요청은 서버가 무시한다", () => {

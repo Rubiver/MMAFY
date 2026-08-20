@@ -8,7 +8,7 @@ export type DeviceState = "READY" | "ACTIVE" | "OFFLINE";
 export type InteractableState = {
   id: string;
   name: string;
-  type: "GENERATOR" | "DOOR" | "LADDER" | "VENT" | "BELL" | "TASK_PANEL" | "CCTV";
+  type: "GENERATOR" | "DOOR" | "LADDER" | "VENT" | "BELL" | "TASK_PANEL" | "CCTV" | "COMMUNICATIONS";
   position: Vector3Data;
   interactionRange: number;
   currentState: DeviceState;
@@ -67,6 +67,8 @@ export const SECURITY_SHUTTER_POSITION: Vector3Data = { x: -36, y: 0, z: -30 };
 export const SECURITY_SHUTTER_COLLIDER: WorldCollider = { id: "security-shutter", position: { x: -36, y: 1.5, z: -30 }, size: { x: 0.5, y: 3, z: 3.2 } };
 /** 동쪽 산업 지대 관제실 안쪽의 시민 전용 CCTV 조작대 위치다. */
 export const CCTV_CONSOLE_POSITION: Vector3Data = { x: 50, y: 0, z: 30 };
+/** 동쪽 산업 지대 통신실의 시민 복구 장치 위치다. */
+export const COMMUNICATIONS_CONSOLE_POSITION: Vector3Data = { x: 58, y: 0, z: 42 };
 
 /** 서쪽 숲, 강의 교량, 동쪽 산업 지대를 구성하는 서버 권한형 충돌 상자다. */
 export const WORLD_COLLIDERS: readonly WorldCollider[] = [
@@ -157,7 +159,7 @@ export type ClientMessage =
   | { type: "START_VOTING" }
   | { type: "VOTE"; targetId: string | "SKIP" }
   | { type: "CHAT"; text: string }
-  | { type: "ENVIRONMENT"; action: "SABOTAGE" | "REPAIR_START" | "REPAIR_COMPLETE" | "REPAIR_CANCEL" | "VENT" | "TASK" | "DOOR_TOGGLE" | "DOOR_LOCK" | "CCTV_OPEN" | "CCTV_CLOSE"; deviceId?: GeneratorId; puzzle?: string[] }
+  | { type: "ENVIRONMENT"; action: "SABOTAGE" | "REPAIR_START" | "REPAIR_COMPLETE" | "REPAIR_CANCEL" | "VENT" | "TASK" | "DOOR_TOGGLE" | "DOOR_LOCK" | "CCTV_OPEN" | "CCTV_CLOSE" | "COMM_SABOTAGE" | "COMM_REPAIR"; deviceId?: GeneratorId; puzzle?: string[] }
   | { type: "MOVE"; direction: { x: number; z: number }; rotation: number; run: boolean; sequence: number }
   | { type: "PING" };
 
@@ -174,4 +176,4 @@ export type ServerMessage =
   | { type: "PONG" };
 
 /** 서버가 동기화하는 환경 장치 상태다. */
-export type EnvironmentState = { blackout: boolean; generatorOnline: boolean; generators: Record<GeneratorId, boolean>; cctvOnline: boolean; doorLocked: boolean; doorState: DoorState; taskProgress: number };
+export type EnvironmentState = { blackout: boolean; generatorOnline: boolean; generators: Record<GeneratorId, boolean>; cctvOnline: boolean; communicationsOnline: boolean; doorLocked: boolean; doorState: DoorState; taskProgress: number };

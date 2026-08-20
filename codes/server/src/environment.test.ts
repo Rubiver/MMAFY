@@ -24,7 +24,7 @@ describe("EnvironmentSystem", () => {
     environment.sabotage("mafia", "MAFIA", "generator-b", 1_000);
     environment.completeCircuitTask("survivor", "SURVIVOR", CIRCUIT_PANEL_POSITION, ["AMBER", "CYAN", "VIOLET"]);
     environment.reset();
-    expect(environment.snapshot()).toEqual({ blackout: false, generatorOnline: true, generators: { "generator-a": true, "generator-b": true }, cctvOnline: true, doorLocked: false, doorState: "OPEN", taskProgress: 0 });
+    expect(environment.snapshot()).toEqual({ blackout: false, generatorOnline: true, generators: { "generator-a": true, "generator-b": true }, cctvOnline: true, communicationsOnline: true, doorLocked: false, doorState: "OPEN", taskProgress: 0 });
   });
 
   it("3초보다 일찍 복구 완료를 요청하면 정전이 유지된다", () => {
@@ -61,6 +61,15 @@ describe("EnvironmentSystem", () => {
     environment.lockDoor("MAFIA", SECURITY_SHUTTER_POSITION);
     expect(environment.snapshot()).toMatchObject({ doorState: "LOCKED", doorLocked: true });
     expect(() => environment.toggleDoor("SURVIVOR", SECURITY_SHUTTER_POSITION)).toThrow("셔터");
+  });
+
+  it("마피아 통신 장애는 CCTV를 끄고 시민 통신실 복구로 해제된다", () => {
+    const environment = new EnvironmentSystem();
+    environment.sabotageCommunications("mafia", "MAFIA", 1_000);
+    expect(environment.snapshot()).toMatchObject({ communicationsOnline: false, cctvOnline: false });
+    expect(() => environment.repairCommunications("MAFIA", { x: 58, y: 0, z: 42 })).toThrow("통신 복구");
+    environment.repairCommunications("SURVIVOR", { x: 58, y: 0, z: 42 });
+    expect(environment.snapshot()).toMatchObject({ communicationsOnline: true, cctvOnline: true });
   });
 
   it("시민만 관제실에서 CCTV를 열 수 있고 정전은 관제를 종료한다", () => {

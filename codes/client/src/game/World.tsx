@@ -3,7 +3,7 @@ import { Billboard, Outlines, PointerLockControls, Text } from "@react-three/dre
 import { Canvas, useFrame, useThree, type RootState } from "@react-three/fiber";
 import { CuboidCollider, Physics, RigidBody } from "@react-three/rapier";
 import * as THREE from "three";
-import { CCTV_CONSOLE_POSITION, CIRCUIT_PANEL_POSITION, EMERGENCY_BELL_POSITION, GENERATOR_POSITIONS, KILL_RANGE, REPAIR_HOLD_DURATION_MS, SECURITY_SHUTTER_POSITION, SURVIVOR_BLACKOUT_VIEW_DISTANCE, TREE_POSITIONS, VENT_ENTRANCE_POSITION, WORLD_COLLIDERS, WORLD_DEPTH, WORLD_WIDTH, type GeneratorId, type InteractableState, type Vector3Data } from "@mafia/shared";
+import { CCTV_CONSOLE_POSITION, CIRCUIT_PANEL_POSITION, COMMUNICATIONS_CONSOLE_POSITION, EMERGENCY_BELL_POSITION, GENERATOR_POSITIONS, KILL_RANGE, REPAIR_HOLD_DURATION_MS, SECURITY_SHUTTER_POSITION, SURVIVOR_BLACKOUT_VIEW_DISTANCE, TREE_POSITIONS, VENT_ENTRANCE_POSITION, WORLD_COLLIDERS, WORLD_DEPTH, WORLD_WIDTH, type GeneratorId, type InteractableState, type Vector3Data } from "@mafia/shared";
 import { getActiveGameClient } from "../network/gameClient";
 import { useGameStore } from "../store/gameStore";
 import { GAME_CONFIG } from "./config";
@@ -21,6 +21,7 @@ const devices: InteractableState[] = [
   { id: "circuit-panel", name: "회로 제어반", type: "TASK_PANEL", position: CIRCUIT_PANEL_POSITION, interactionRange: 2.4, currentState: "READY" },
   { id: "security-shutter", name: "보안 셔터", type: "DOOR", position: SECURITY_SHUTTER_POSITION, interactionRange: 2.4, currentState: "READY" },
   { id: "cctv-console", name: "CCTV 관제대", type: "CCTV", position: CCTV_CONSOLE_POSITION, interactionRange: 2.4, currentState: "READY" },
+  { id: "communications-console", name: "통신 복구 장치", type: "COMMUNICATIONS", position: COMMUNICATIONS_CONSOLE_POSITION, interactionRange: 2.4, currentState: "READY" },
 ];
 
 let lastPrimaryActionAt = 0;
@@ -49,13 +50,14 @@ function Block({ position, size, color = "#263647" }: { position: [number, numbe
  * @returns 장치 메시와 조명
  */
 function Device({ device }: { device: InteractableState }) {
-  const colors = { GENERATOR: "#f4b942", DOOR: "#4ca7e8", LADDER: "#81c784", VENT: "#a78bfa", BELL: "#facc15", TASK_PANEL: "#22d3ee", CCTV: "#67e8f9" };
+  const colors = { GENERATOR: "#f4b942", DOOR: "#4ca7e8", LADDER: "#81c784", VENT: "#a78bfa", BELL: "#facc15", TASK_PANEL: "#22d3ee", CCTV: "#67e8f9", COMMUNICATIONS: "#f472b6" };
   const nearbyDeviceId = useGameStore((state) => state.nearbyDevice?.id);
   const role = useGameStore((state) => state.role);
   const blackout = useGameStore((state) => state.environment?.blackout ?? false);
   const doorState = useGameStore((state) => state.environment?.doorState ?? "OPEN");
   const cctvOnline = useGameStore((state) => state.environment?.cctvOnline ?? false);
-  const usable = nearbyDeviceId === device.id && (device.type === "BELL" || device.type === "TASK_PANEL" && role === "SURVIVOR" || device.type === "CCTV" && role === "SURVIVOR" && cctvOnline || device.type === "DOOR" && (role === "MAFIA" && doorState === "CLOSED" || role === "SURVIVOR" && doorState !== "LOCKED") || device.type === "VENT" && role === "MAFIA" || device.type === "GENERATOR" && role === "SURVIVOR" && blackout);
+  const communicationsOnline = useGameStore((state) => state.environment?.communicationsOnline ?? true);
+  const usable = nearbyDeviceId === device.id && (device.type === "BELL" || device.type === "TASK_PANEL" && role === "SURVIVOR" || device.type === "CCTV" && role === "SURVIVOR" && cctvOnline || device.type === "COMMUNICATIONS" && role === "SURVIVOR" && !communicationsOnline || device.type === "DOOR" && (role === "MAFIA" && doorState === "CLOSED" || role === "SURVIVOR" && doorState !== "LOCKED") || device.type === "VENT" && role === "MAFIA" || device.type === "GENERATOR" && role === "SURVIVOR" && blackout);
   const highlightSize: [number, number, number] = device.type === "BELL" ? [1.5, 2.3, 1.5] : device.type === "TASK_PANEL" ? [1.4, 2.1, 0.8] : [1.5, 2, 1.3];
   return <group position={[device.position.x, 0, device.position.z]}>{device.type === "LADDER" ? <Block position={[0, 1.4, 0]} size={[0.45, 2.8, 0.2]} color={colors.LADDER} /> : null}{device.type === "GENERATOR" ? <Block position={[0, 0.65, 0]} size={[1.1, 1.3, 0.8]} color={colors.GENERATOR} /> : null}{device.type === "DOOR" && doorState !== "OPEN" ? <Block position={[0, 1.5, 0]} size={[0.5, 3, 3.2]} color={doorState === "LOCKED" ? "#ef4444" : colors.DOOR} /> : null}{device.type === "VENT" ? <group position={[0, 0.12, 0]}><mesh><cylinderGeometry args={[1.05, 1.05, 0.22, 24]} /><meshStandardMaterial color={colors.VENT} metalness={0.7} roughness={0.28} /></mesh></group> : null}{device.type === "BELL" ? <group position={[0, 1.05, 0]}><mesh castShadow><sphereGeometry args={[0.55, 20, 16, 0, Math.PI * 2, 0, Math.PI / 2]} /><meshStandardMaterial color={colors.BELL} /></mesh><Text position={[0, 1.05, 0]} fontSize={0.24} color="#fff7cc" anchorX="center">긴급 회의 종</Text></group> : null}{device.type === "TASK_PANEL" ? <group position={[0, 1, 0]}><mesh castShadow><boxGeometry args={[1.1, 1.7, 0.32]} /><meshStandardMaterial color="#164e63" /></mesh><Text position={[0, 1.25, 0]} fontSize={0.22} color="#cffafe" anchorX="center">회로 제어반</Text></group> : null}{device.type === "CCTV" ? <group position={[0, 1.05, 0]}><mesh castShadow><boxGeometry args={[1.5, 1.5, 0.45]} /><meshStandardMaterial color="#152b40" metalness={0.45} /></mesh><mesh position={[0, 0.08, -0.24]}><planeGeometry args={[1.16, 0.76]} /><meshStandardMaterial color={cctvOnline ? "#155e75" : "#172033"} emissive={cctvOnline ? "#0e7490" : "#000000"} emissiveIntensity={cctvOnline ? 0.8 : 0} /></mesh><Text position={[0, 1.35, 0]} fontSize={0.21} color="#cffafe" anchorX="center">CCTV 관제대</Text></group> : null}{usable ? <lineSegments position={[0, highlightSize[1] / 2, 0]} renderOrder={10}><edgesGeometry args={[new THREE.BoxGeometry(...highlightSize)]} /><lineBasicMaterial color="#fde047" depthTest={false} /></lineSegments> : null}<pointLight color={usable ? "#fde047" : colors[device.type]} intensity={usable ? 4 : 2} distance={usable ? 7 : 5} position={[0, 1.8, 0]} /></group>;
 }
@@ -139,6 +141,7 @@ function PlayerController() {
       if (device.type === "BELL") { setInteractionMessage("긴급 회의 종을 울립니다."); getActiveGameClient()?.callMeeting(); return; }
       if (device.type === "TASK_PANEL") { if (state.role !== "SURVIVOR") setInteractionMessage("회로 제어반은 시민만 사용할 수 있습니다."); else { document.exitPointerLock(); setTaskPanelOpen(true); } return; }
       if (device.type === "CCTV") { if (state.role !== "SURVIVOR" || !state.environment?.cctvOnline) setInteractionMessage("CCTV는 전력이 정상일 때 시민만 사용할 수 있습니다."); else { document.exitPointerLock(); getActiveGameClient()?.environment("CCTV_OPEN"); setCctvOpen(true); } return; }
+      if (device.type === "COMMUNICATIONS") { if (state.role !== "SURVIVOR" || state.environment?.communicationsOnline) setInteractionMessage("통신 장치는 현재 복구가 필요하지 않습니다."); else { setInteractionMessage("통신을 복구합니다."); getActiveGameClient()?.environment("COMM_REPAIR"); } return; }
       if (device.type === "DOOR") { getActiveGameClient()?.environment(state.role === "MAFIA" ? "DOOR_LOCK" : "DOOR_TOGGLE"); return; }
       if (device.type === "VENT") { if (state.role !== "MAFIA") setInteractionMessage("환풍구는 마피아만 사용할 수 있습니다."); else { setInteractionMessage("환풍구를 통해 동쪽 출구로 이동합니다."); getActiveGameClient()?.environment("VENT"); } return; }
       if (device.type !== "GENERATOR" || state.role !== "SURVIVOR" || !state.environment?.blackout) { setInteractionMessage(`${device.name}은 지금 상호작용할 수 없습니다.`); return; }
