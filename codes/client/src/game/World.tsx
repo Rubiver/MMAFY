@@ -184,6 +184,8 @@ function PlayerController() {
   useFrame((_state, delta) => {
     const state = useGameStore.getState();
     if (state.cctvOpen) return;
+    // 회의 중에도 캔버스는 유지하되, 회의 화면 아래에서 이동하거나 상호작용하지 않는다.
+    if (state.room?.gameState !== "PLAYING") return;
     const localPlayer = state.room?.players.find((item) => item.id === state.playerId);
     if (localPlayer?.lifeState !== "ALIVE") {
       const observed = state.room?.players.find((item) => item.id !== state.playerId && item.connected && item.lifeState === "ALIVE");

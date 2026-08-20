@@ -8,6 +8,7 @@ import { useGameStore } from "../store/gameStore";
 export function Meeting() {
   const room = useGameStore((state) => state.room);
   const playerId = useGameStore((state) => state.playerId);
+  const communicationsOnline = useGameStore((state) => state.environment?.communicationsOnline ?? true);
   const [text, setText] = useState("");
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 250); return () => window.clearInterval(timer); }, []);
@@ -16,7 +17,6 @@ export function Meeting() {
   if (!room.meeting) return null;
   const { meeting } = room;
   const me = room.players.find((player) => player.id === playerId);
-  const communicationsOnline = useGameStore((state) => state.environment?.communicationsOnline ?? true);
   const reporter = room.players.find((player) => player.id === meeting.reporterId);
   const votePlayers = room.players;
   const remaining = Math.max(0, Math.ceil((meeting.endsAt - now) / 1000));
