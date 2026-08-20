@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { EnvironmentSystem } from "./environment.js";
 import { GameRoom, MAX_PLAYERS, RoomError } from "./room.js";
 
 /** 두 참가자가 처치 거리 안에 설 때까지 서버 권한 이동을 반복한다. */
@@ -115,6 +116,22 @@ describe("GameRoom", () => {
     expect(() => room.kill("host", "survivor", 19_999)).toThrow("재사용");
     room.kill("host", "survivor", 20_000);
     expect(room.killCooldownRemainingMs("host", 20_000)).toBe(25_000);
+  });
+
+  it("정전 중에도 처치한 시체를 마피아가 신고할 수 있다", () => {
+    const room = new GameRoom("test");
+    for (const id of ["host", "survivor-a", "survivor-b", "survivor-c"]) { room.join(id, id, undefined, 0); room.setReady(id, true); }
+    room.setMafiaCount("host", 1);
+    room.startGame("host", 0);
+    room.teleport("host", { x: 0, y: 1.4, z: 0 });
+    room.teleport("survivor-a", { x: 1, y: 1.4, z: 0 });
+    const environment = new EnvironmentSystem();
+    environment.sabotage("host", "MAFIA", "generator-a", 1_000);
+    room.kill("host", "survivor-a", 20_000);
+    const bodyId = room.snapshot().players.find((player) => player.id === "survivor-a")?.bodyId;
+    expect(bodyId).toBeDefined();
+    room.report("host", bodyId!);
+    expect(room.snapshot().meeting).toMatchObject({ reporterId: "host", bodyId });
   });
 
   it("유예 시간 안에는 재접속 상태를 복구한다", () => {

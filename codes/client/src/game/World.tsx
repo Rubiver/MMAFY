@@ -70,6 +70,7 @@ function PlayerController() {
   const setNearbyDevice = useGameStore((state) => state.setNearbyDevice);
   const setInteractionMessage = useGameStore((state) => state.setInteractionMessage);
   const setAimedKillTarget = useGameStore((state) => state.setAimedKillTarget);
+  const setNearbyBody = useGameStore((state) => state.setNearbyBody);
   const setRepairProgress = useGameStore((state) => state.setRepairProgress);
   const { camera, scene } = useThree();
   const lastSendAt = useRef(0);
@@ -119,11 +120,12 @@ function PlayerController() {
       setRepairProgress(0);
       getActiveGameClient()?.environment("REPAIR_CANCEL");
     };
-    /** 캔버스 좌클릭 때 크로스헤어가 가리키는 시민만 처치 요청을 보낸다. */
+    /** 포인터 잠금 중 좌클릭으로 처치 또는 가까운 시체 신고를 요청한다. */
     const onMouseDown = (event: MouseEvent) => {
-      if (event.button !== 0 || !(event.target instanceof HTMLCanvasElement)) return;
+      if (event.button !== 0 || !(document.pointerLockElement instanceof HTMLCanvasElement)) return;
       const state = useGameStore.getState();
       if (state.role === "MAFIA" && state.aimedKillTargetId) getActiveGameClient()?.kill(state.aimedKillTargetId);
+      else if (state.nearbyBodyId) getActiveGameClient()?.report(state.nearbyBodyId);
     };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
@@ -157,6 +159,8 @@ function PlayerController() {
     const cameraDirection = new THREE.Vector3(); camera.getWorldDirection(cameraDirection);
     setNearbyDevice(findCrosshairInteractable(position, cameraDirection, devices));
     const state = useGameStore.getState();
+    const nearbyBody = state.room?.players.filter((item) => item.lifeState === "DEAD" && item.bodyId).map((item) => ({ bodyId: item.bodyId!, distance: Math.hypot(position.x - item.position.x, position.z - item.position.z) })).sort((left, right) => left.distance - right.distance)[0];
+    setNearbyBody(nearbyBody && nearbyBody.distance <= 2 ? nearbyBody.bodyId : undefined);
     raycaster.current.setFromCamera(new THREE.Vector2(0, 0), camera);
     const hit = state.role === "MAFIA" && Date.now() >= (state.killCooldownUntil ?? 0) ? raycaster.current.intersectObjects(scene.children, true).find((intersection) => typeof intersection.object.userData.killTargetId === "string") : undefined;
     const targetId = hit?.object.userData.killTargetId as string | undefined;
@@ -178,6 +182,19 @@ function RemotePlayers() {
   const players = useGameStore((state) => state.room?.players ?? []);
   const playerId = useGameStore((state) => state.playerId);
   return <>{players.filter((player) => player.id !== playerId && player.connected && player.lifeState === "ALIVE").map((player) => <RemotePlayer key={player.id} playerId={player.id} position={player.position} rotation={player.rotation} name={player.displayName} />)}</>;
+}
+
+/** 서버가 남긴 시체를 표시한다. 살아 있는 모든 참가자는 가까이 가면 신고할 수 있다. */
+function Bodies() {
+  const players = useGameStore((state) => state.room?.players ?? []);
+  return <>{players.filter((player) => player.lifeState === "DEAD" && player.bodyId).map((player) => <Body key={player.bodyId} bodyId={player.bodyId!} position={player.position} name={player.displayName} />)}</>;
+}
+
+/** 바닥에 남은 시체와 근접 신고 가능 강조를 그린다. */
+function Body({ bodyId, position, name }: { bodyId: string; position: Vector3Data; name: string }) {
+  const nearbyBodyId = useGameStore((state) => state.nearbyBodyId);
+  const highlighted = nearbyBodyId === bodyId;
+  return <group position={[position.x, 0.34, position.z]} rotation={[Math.PI / 2, 0, 0]}><mesh castShadow userData={{ reportBodyId: bodyId }}><capsuleGeometry args={[0.36, 0.9, 8, 16]} /><meshStandardMaterial color="#7f1d1d" emissive={highlighted ? "#ef4444" : "#000000"} emissiveIntensity={highlighted ? 0.8 : 0} /><Outlines color="#fbbf24" thickness={0.12} screenspace visible={highlighted} /></mesh><Billboard position={[0, 0.8, 0]} follow><Text fontSize={0.25} color={highlighted ? "#fef3c7" : "#fecaca"} outlineWidth={0.018} outlineColor="#1f0707" anchorX="center">{highlighted ? `[좌클릭] ${name} 신고` : `${name}의 시체`}</Text></Billboard></group>;
 }
 
 /** 다른 참가자 위치를 보간하고 처치 가능한 시민을 강조한다.
@@ -250,4 +267,4 @@ function focusGameCanvas({ gl }: RootState): void {
 /** 서쪽 숲과 동쪽 산업 지대를 잇는 180미터 야외 맵을 렌더링한다.
  * @returns React Three Fiber 캔버스
  */
-export function World() { return <Canvas shadows camera={{ position: [0, 2, 7], fov: 75 }} onCreated={focusGameCanvas}><color attach="background" args={["#87b7d1"]} /><ambientLight intensity={1.1} /><hemisphereLight intensity={1.35} color="#e7f3ff" groundColor="#35582d" /><directionalLight castShadow intensity={1.8} position={[40, 70, 20]} shadow-mapSize={[2048, 2048]} /><BlackoutVision /><GeneratorBlackoutOutline /><Physics gravity={[0, -18, 0]}><Block position={[0, -0.15, 0]} size={[WORLD_WIDTH, 0.3, WORLD_DEPTH]} color="#496b3c" /><OutdoorLandmarks />{WORLD_COLLIDERS.filter((collider) => !collider.id.startsWith("river-")).map((collider) => <Block key={collider.id} position={[collider.position.x, collider.position.y, collider.position.z]} size={[collider.size.x, collider.size.y, collider.size.z]} color={collider.id.includes("station") ? "#56616b" : collider.id.endsWith("wall") ? "#6e6556" : "#8a6a59"} />)}{devices.map((device) => <Device key={device.id} device={device} />)}<PlayerController /><RemotePlayers /></Physics><PointerLockControls /></Canvas>; }
+export function World() { return <Canvas shadows camera={{ position: [0, 2, 7], fov: 75 }} onCreated={focusGameCanvas}><color attach="background" args={["#87b7d1"]} /><ambientLight intensity={1.1} /><hemisphereLight intensity={1.35} color="#e7f3ff" groundColor="#35582d" /><directionalLight castShadow intensity={1.8} position={[40, 70, 20]} shadow-mapSize={[2048, 2048]} /><BlackoutVision /><GeneratorBlackoutOutline /><Physics gravity={[0, -18, 0]}><Block position={[0, -0.15, 0]} size={[WORLD_WIDTH, 0.3, WORLD_DEPTH]} color="#496b3c" /><OutdoorLandmarks />{WORLD_COLLIDERS.filter((collider) => !collider.id.startsWith("river-")).map((collider) => <Block key={collider.id} position={[collider.position.x, collider.position.y, collider.position.z]} size={[collider.size.x, collider.size.y, collider.size.z]} color={collider.id.includes("station") ? "#56616b" : collider.id.endsWith("wall") ? "#6e6556" : "#8a6a59"} />)}{devices.map((device) => <Device key={device.id} device={device} />)}<PlayerController /><RemotePlayers /><Bodies /></Physics><PointerLockControls /></Canvas>; }

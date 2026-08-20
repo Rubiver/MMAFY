@@ -35,6 +35,8 @@ export class GameClient {
   startGame(): void { this.send({ type: "START_GAME" }); }
   setMafiaCount(count: number): void { this.send({ type: "SET_MAFIA_COUNT", count }); }
   kill(targetId: string): void { this.send({ type: "KILL", targetId }); }
+  /** 가까운 시체를 서버에 신고한다. */
+  report(bodyId: string): void { this.send({ type: "REPORT", bodyId }); }
   callMeeting(): void { this.send({ type: "CALL_MEETING" }); }
   startVoting(): void { this.send({ type: "START_VOTING" }); }
   vote(targetId: string | "SKIP"): void { this.send({ type: "VOTE", targetId }); }

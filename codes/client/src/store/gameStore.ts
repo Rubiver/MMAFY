@@ -13,6 +13,7 @@ type GameStore = {
   environment?: EnvironmentState;
   killCooldownUntil?: number;
   aimedKillTargetId?: string;
+  nearbyBodyId?: string;
   repairProgress: number;
   setPlayerPosition: (position: Vector3Data) => void;
   setNearbyDevice: (device?: InteractableState) => void;
@@ -23,6 +24,7 @@ type GameStore = {
   setEnvironment: (environment: EnvironmentState) => void;
   setKillCooldown: (remainingMs: number) => void;
   setAimedKillTarget: (playerId?: string) => void;
+  setNearbyBody: (bodyId?: string) => void;
   setRepairProgress: (progress: number) => void;
 };
 
@@ -42,5 +44,6 @@ export const useGameStore = create<GameStore>((set) => ({
   setEnvironment: (environment) => set({ environment }),
   setKillCooldown: (remainingMs) => set({ killCooldownUntil: Date.now() + remainingMs }),
   setAimedKillTarget: (aimedKillTargetId) => set({ aimedKillTargetId }),
+  setNearbyBody: (nearbyBodyId) => set({ nearbyBodyId }),
   setRepairProgress: (repairProgress) => set({ repairProgress: Math.min(1, Math.max(0, repairProgress)) }),
 }));

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { resolveLocalMovement } from "./localMovement";
 import { facingYaw, movementSpeed, movementVector } from "./movement";
 
 describe("이동 계산", () => {
@@ -16,5 +17,10 @@ describe("이동 계산", () => {
     expect(facingYaw({ x: 1, z: 0 })).toBeCloseTo(-Math.PI / 2);
     // π와 -π는 같은 뒷방향이므로 표준 범위의 -π를 기대한다.
     expect(facingYaw({ x: 0, z: 1 })).toBeCloseTo(-Math.PI);
+  });
+
+  it("교량 갑판 밖의 강 충돌 구간을 통과하지 못한다", () => {
+    const position = resolveLocalMovement({ x: -8.4, y: 1.4, z: -33 }, { x: 0.5, z: 0 });
+    expect(position.x).toBeLessThanOrEqual(-8.35);
   });
 });
