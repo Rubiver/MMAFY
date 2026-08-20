@@ -42,7 +42,7 @@ function restoreGamePointerLock(): void {
   const canvas = document.querySelector<HTMLCanvasElement>("canvas");
   if (!canvas) return;
   canvas.focus({ preventScroll: true });
-  void canvas.requestPointerLock();
+  if (document.pointerLockElement !== canvas) void canvas.requestPointerLock().catch(() => undefined);
 }
 
 /** 역할별 긴급 행동과 마피아 원격 사보타지를 제공한다.
@@ -57,13 +57,21 @@ export function GameActions() {
   const [sabotageHeld, setSabotageHeld] = useState(false);
 
   useEffect(() => {
+    let restoreAfterPointerUnlock = false;
+    /** 이전 포인터 잠금 해제가 끝난 뒤, 대기 중인 게임 조작 복구를 수행한다. */
+    const onPointerLockChange = () => {
+      if (!restoreAfterPointerUnlock || document.pointerLockElement) return;
+      restoreAfterPointerUnlock = false;
+      restoreGamePointerLock();
+    };
     /** 마피아가 Caps Lock을 누르는 동안 포인터 잠금을 풀고 시설 지도를 연다. */
-    const onKeyDown = (event: KeyboardEvent) => { if (role === "MAFIA" && event.code === "CapsLock" && !event.repeat) { event.preventDefault(); document.exitPointerLock(); setSabotageHeld(true); } if (event.code === "Escape") { event.preventDefault(); setSabotageHeld(false); restoreGamePointerLock(); } };
+    const onKeyDown = (event: KeyboardEvent) => { if (role === "MAFIA" && event.code === "CapsLock" && !event.repeat) { event.preventDefault(); restoreAfterPointerUnlock = false; document.exitPointerLock(); setSabotageHeld(true); } if (event.code === "Escape") { event.preventDefault(); setSabotageHeld(false); if (document.pointerLockElement) restoreAfterPointerUnlock = true; else restoreGamePointerLock(); } };
     /** Caps Lock을 놓으면 지도와 포인터를 원래 게임 조작으로 되돌린다. */
-    const onKeyUp = (event: KeyboardEvent) => { if (event.code === "CapsLock") { event.preventDefault(); setSabotageHeld(false); restoreGamePointerLock(); } };
+    const onKeyUp = (event: KeyboardEvent) => { if (event.code === "CapsLock") { event.preventDefault(); setSabotageHeld(false); if (document.pointerLockElement) restoreAfterPointerUnlock = true; else restoreGamePointerLock(); } };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
-    return () => { window.removeEventListener("keydown", onKeyDown); window.removeEventListener("keyup", onKeyUp); };
+    document.addEventListener("pointerlockchange", onPointerLockChange);
+    return () => { window.removeEventListener("keydown", onKeyDown); window.removeEventListener("keyup", onKeyUp); document.removeEventListener("pointerlockchange", onPointerLockChange); };
   }, [role]);
 
   if (!room || !id) return null;
