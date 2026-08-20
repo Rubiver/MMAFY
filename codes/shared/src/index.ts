@@ -8,7 +8,7 @@ export type DeviceState = "READY" | "ACTIVE" | "OFFLINE";
 export type InteractableState = {
   id: string;
   name: string;
-  type: "GENERATOR" | "DOOR" | "LADDER" | "VENT";
+  type: "GENERATOR" | "DOOR" | "LADDER" | "VENT" | "BELL" | "TASK_PANEL" | "CCTV";
   position: Vector3Data;
   interactionRange: number;
   currentState: DeviceState;
@@ -26,6 +26,8 @@ export const KILL_RANGE = 2;
 export const INITIAL_KILL_COOLDOWN_MS = 20_000;
 /** 처치 성공 뒤 다음 처치까지의 대기 시간이다. */
 export const KILL_COOLDOWN_MS = 25_000;
+/** 신고 또는 긴급 회의에서 토론과 투표를 진행하는 제한 시간이다. */
+export const MEETING_DURATION_MS = 90_000;
 /** 서버와 클라이언트 예측 이동이 함께 쓰는 걷기 속도다. */
 export const PLAYER_WALK_SPEED = 3.2;
 /** 서버와 클라이언트 예측 이동이 함께 쓰는 달리기 속도다. */
@@ -45,6 +47,7 @@ export const REPAIR_HOLD_DURATION_MS = 3_000;
 
 /** 정전과 복구 대상으로 쓸 발전기 식별자다. */
 export type GeneratorId = "generator-a" | "generator-b";
+export type DoorState = "OPEN" | "CLOSED" | "LOCKED";
 
 /** 클라이언트 물리와 서버 이동 검증이 함께 쓰는 맵 충돌 상자다. */
 export type WorldCollider = { id: string; position: Vector3Data; size: Vector3Data };
@@ -55,6 +58,15 @@ export const GENERATOR_POSITIONS: Record<GeneratorId, Vector3Data> = { "generato
 export const VENT_ENTRANCE_POSITION: Vector3Data = { x: -76, y: 0, z: 42 };
 /** 환풍구를 통과한 마피아가 도착하는 반대편 출구다. */
 export const VENT_EXIT_POSITION: Vector3Data = { x: 76, y: 1.4, z: -42 };
+/** 남쪽 중앙 교량에 놓인 긴급 회의 종의 위치다. */
+export const EMERGENCY_BELL_POSITION: Vector3Data = { x: 0, y: 0, z: 27.5 };
+/** 서쪽 숲 가장자리의 시민 공통 임무 회로 제어반 위치다. */
+export const CIRCUIT_PANEL_POSITION: Vector3Data = { x: -48, y: 0, z: -12 };
+/** 서쪽 산장 출입구의 시민 개폐·마피아 잠금 셔터 위치다. */
+export const SECURITY_SHUTTER_POSITION: Vector3Data = { x: -36, y: 0, z: -30 };
+export const SECURITY_SHUTTER_COLLIDER: WorldCollider = { id: "security-shutter", position: { x: -36, y: 1.5, z: -30 }, size: { x: 0.5, y: 3, z: 3.2 } };
+/** 동쪽 산업 지대 관제실 안쪽의 시민 전용 CCTV 조작대 위치다. */
+export const CCTV_CONSOLE_POSITION: Vector3Data = { x: 50, y: 0, z: 30 };
 
 /** 서쪽 숲, 강의 교량, 동쪽 산업 지대를 구성하는 서버 권한형 충돌 상자다. */
 export const WORLD_COLLIDERS: readonly WorldCollider[] = [
@@ -111,6 +123,12 @@ export type NetworkPlayer = {
   bodyId?: string;
 };
 
+/** 회의 중 서버가 모든 참가자에게 전파하는 채팅 한 건이다. */
+export type MeetingChatMessage = { id: string; playerId: string; displayName: string; text: string; sentAt: number };
+
+/** 신고 또는 긴급 회의의 서버 권한 상태다. */
+export type MeetingState = { reporterId: string; bodyId?: string; votes: Record<string, string | "SKIP">; endsAt: number; messages: MeetingChatMessage[] };
+
 /** 대기실 화면에 필요한 서버 권한 상태다. */
 export type RoomSnapshot = {
   roomId: string;
@@ -118,7 +136,7 @@ export type RoomSnapshot = {
   gameState: GameState;
   maxPlayers: number;
   players: NetworkPlayer[];
-  meeting?: { reporterId: string; bodyId?: string; votes: Record<string, string | "SKIP"> };
+  meeting?: MeetingState;
   result?: { winner: RoleTeam; expelledId?: string };
 };
 
@@ -134,7 +152,8 @@ export type ClientMessage =
   | { type: "CALL_MEETING" }
   | { type: "START_VOTING" }
   | { type: "VOTE"; targetId: string | "SKIP" }
-  | { type: "ENVIRONMENT"; action: "SABOTAGE" | "REPAIR_START" | "REPAIR_COMPLETE" | "REPAIR_CANCEL" | "VENT" | "TASK"; deviceId?: GeneratorId }
+  | { type: "CHAT"; text: string }
+  | { type: "ENVIRONMENT"; action: "SABOTAGE" | "REPAIR_START" | "REPAIR_COMPLETE" | "REPAIR_CANCEL" | "VENT" | "TASK" | "DOOR_TOGGLE" | "DOOR_LOCK" | "CCTV_OPEN" | "CCTV_CLOSE"; deviceId?: GeneratorId; puzzle?: string[] }
   | { type: "MOVE"; direction: { x: number; z: number }; rotation: number; run: boolean; sequence: number }
   | { type: "PING" };
 
@@ -150,4 +169,4 @@ export type ServerMessage =
   | { type: "PONG" };
 
 /** 서버가 동기화하는 환경 장치 상태다. */
-export type EnvironmentState = { blackout: boolean; generatorOnline: boolean; generators: Record<GeneratorId, boolean>; cctvOnline: boolean; doorLocked: boolean; taskProgress: number };
+export type EnvironmentState = { blackout: boolean; generatorOnline: boolean; generators: Record<GeneratorId, boolean>; cctvOnline: boolean; doorLocked: boolean; doorState: DoorState; taskProgress: number };

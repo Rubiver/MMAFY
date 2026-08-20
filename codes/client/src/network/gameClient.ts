@@ -40,7 +40,9 @@ export class GameClient {
   callMeeting(): void { this.send({ type: "CALL_MEETING" }); }
   startVoting(): void { this.send({ type: "START_VOTING" }); }
   vote(targetId: string | "SKIP"): void { this.send({ type: "VOTE", targetId }); }
-  environment(action: "SABOTAGE" | "REPAIR_START" | "REPAIR_COMPLETE" | "REPAIR_CANCEL" | "VENT" | "TASK", deviceId?: GeneratorId): void { this.send({ type: "ENVIRONMENT", action, deviceId }); }
+  /** 회의 중 모든 생존자에게 보일 짧은 채팅을 요청한다. */
+  chat(text: string): void { this.send({ type: "CHAT", text }); }
+  environment(action: "SABOTAGE" | "REPAIR_START" | "REPAIR_COMPLETE" | "REPAIR_CANCEL" | "VENT" | "TASK" | "DOOR_TOGGLE" | "DOOR_LOCK" | "CCTV_OPEN" | "CCTV_CLOSE", deviceId?: GeneratorId, puzzle?: string[]): void { this.send({ type: "ENVIRONMENT", action, deviceId, puzzle }); }
   /** 입력 순번을 포함한 이동 요청을 서버에 보낸다. */
   move(direction: { x: number; z: number }, rotation: number, run: boolean, sequence: number): void { this.send({ type: "MOVE", direction, rotation, run, sequence }); }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { GENERATOR_POSITIONS, VENT_ENTRANCE_POSITION, VENT_EXIT_POSITION } from "@mafia/shared";
+import { CCTV_CONSOLE_POSITION, CIRCUIT_PANEL_POSITION, GENERATOR_POSITIONS, SECURITY_SHUTTER_POSITION, VENT_ENTRANCE_POSITION, VENT_EXIT_POSITION } from "@mafia/shared";
 import { EnvironmentSystem } from "./environment.js";
 
 const generator = { ...GENERATOR_POSITIONS["generator-a"], y: 1.4 };
@@ -22,9 +22,9 @@ describe("EnvironmentSystem", () => {
   it("새 게임을 위해 초기화하면 정전과 임무 진행도를 지운다", () => {
     const environment = new EnvironmentSystem();
     environment.sabotage("mafia", "MAFIA", "generator-b", 1_000);
-    environment.completeTask("SURVIVOR", generator);
+    environment.completeCircuitTask("survivor", "SURVIVOR", CIRCUIT_PANEL_POSITION, ["AMBER", "CYAN", "VIOLET"]);
     environment.reset();
-    expect(environment.snapshot()).toEqual({ blackout: false, generatorOnline: true, generators: { "generator-a": true, "generator-b": true }, cctvOnline: true, doorLocked: false, taskProgress: 0 });
+    expect(environment.snapshot()).toEqual({ blackout: false, generatorOnline: true, generators: { "generator-a": true, "generator-b": true }, cctvOnline: true, doorLocked: false, doorState: "OPEN", taskProgress: 0 });
   });
 
   it("3초보다 일찍 복구 완료를 요청하면 정전이 유지된다", () => {
@@ -45,5 +45,31 @@ describe("EnvironmentSystem", () => {
     const environment = new EnvironmentSystem();
     expect(environment.useVent("MAFIA", VENT_ENTRANCE_POSITION)).toEqual(VENT_EXIT_POSITION);
     expect(() => environment.useVent("SURVIVOR", VENT_ENTRANCE_POSITION)).toThrow("환풍구");
+  });
+
+  it("시민만 제어반에서 올바른 회로 순서를 한 번 완료할 수 있다", () => {
+    const environment = new EnvironmentSystem();
+    expect(() => environment.completeCircuitTask("survivor", "SURVIVOR", CIRCUIT_PANEL_POSITION, ["CYAN", "AMBER", "VIOLET"])).toThrow("회로 연결");
+    expect(environment.completeCircuitTask("survivor", "SURVIVOR", CIRCUIT_PANEL_POSITION, ["AMBER", "CYAN", "VIOLET"])).toBe(false);
+    expect(environment.snapshot().taskProgress).toBe(25);
+    expect(() => environment.completeCircuitTask("survivor", "SURVIVOR", CIRCUIT_PANEL_POSITION, ["AMBER", "CYAN", "VIOLET"])).toThrow("회로 연결");
+  });
+
+  it("시민은 셔터를 개폐하고 마피아는 닫힌 셔터를 잠근다", () => {
+    const environment = new EnvironmentSystem();
+    environment.toggleDoor("SURVIVOR", SECURITY_SHUTTER_POSITION);
+    environment.lockDoor("MAFIA", SECURITY_SHUTTER_POSITION);
+    expect(environment.snapshot()).toMatchObject({ doorState: "LOCKED", doorLocked: true });
+    expect(() => environment.toggleDoor("SURVIVOR", SECURITY_SHUTTER_POSITION)).toThrow("셔터");
+  });
+
+  it("시민만 관제실에서 CCTV를 열 수 있고 정전은 관제를 종료한다", () => {
+    const environment = new EnvironmentSystem();
+    environment.startCctv("survivor", "SURVIVOR", CCTV_CONSOLE_POSITION);
+    expect(environment.isCctvOperating("survivor")).toBe(true);
+    expect(() => environment.startCctv("mafia", "MAFIA", CCTV_CONSOLE_POSITION)).toThrow("CCTV 관제");
+    environment.sabotage("mafia", "MAFIA", "generator-a", 1_000);
+    expect(environment.isCctvOperating("survivor")).toBe(false);
+    expect(() => environment.startCctv("survivor", "SURVIVOR", CCTV_CONSOLE_POSITION)).toThrow("CCTV 관제");
   });
 });

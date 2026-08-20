@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { EnvironmentSystem } from "./environment.js";
 import { GameRoom, MAX_PLAYERS, RoomError } from "./room.js";
+import { EMERGENCY_BELL_POSITION } from "@mafia/shared";
 
 /** 두 참가자가 처치 거리 안에 설 때까지 서버 권한 이동을 반복한다. */
 function moveNear(room: GameRoom, moverId: string, targetId: string): void {
@@ -130,8 +131,61 @@ describe("GameRoom", () => {
     room.kill("host", "survivor-a", 20_000);
     const bodyId = room.snapshot().players.find((player) => player.id === "survivor-a")?.bodyId;
     expect(bodyId).toBeDefined();
-    room.report("host", bodyId!);
+    room.report("host", bodyId!, 20_001);
     expect(room.snapshot().meeting).toMatchObject({ reporterId: "host", bodyId });
+  });
+
+  it("처치 직후에는 시체 신고 기회를 위해 회의나 결과 화면으로 바꾸지 않는다", () => {
+    const room = new GameRoom("test");
+    room.join("host", "마피아", undefined, 0);
+    room.join("survivor", "시민", undefined, 0);
+    room.setReady("host", true); room.setReady("survivor", true); room.setMafiaCount("host", 1);
+    room.startGame("host", 0);
+    room.teleport("host", { x: 0, y: 1.4, z: 0 }); room.teleport("survivor", { x: 1, y: 1.4, z: 0 });
+    room.kill("host", "survivor", 20_000);
+    expect(room.snapshot()).toMatchObject({ gameState: "PLAYING", players: expect.arrayContaining([expect.objectContaining({ id: "survivor", lifeState: "DEAD", bodyId: expect.any(String) })]) });
+  });
+
+  it("사망한 시민의 이동 요청은 서버가 무시한다", () => {
+    const room = new GameRoom("test");
+    room.join("host", "마피아", undefined, 0); room.join("survivor", "시민", undefined, 0);
+    room.setReady("host", true); room.setReady("survivor", true); room.setMafiaCount("host", 1); room.startGame("host", 0);
+    room.teleport("host", { x: 0, y: 1.4, z: 0 }); room.teleport("survivor", { x: 1, y: 1.4, z: 0 }); room.kill("host", "survivor", 20_000);
+    const before = room.snapshot().players.find((player) => player.id === "survivor")!.position;
+    expect(room.move("survivor", { x: 1, z: 0 }, 0, false, 20_100, 1)).toBeUndefined();
+    expect(room.snapshot().players.find((player) => player.id === "survivor")!.position).toEqual(before);
+  });
+
+  it("관제 중인 시민의 서버 이동 요청은 무시한다", () => {
+    const room = new GameRoom("test");
+    room.join("host", "방장", undefined, 0); room.join("other", "상대", undefined, 0);
+    room.setReady("host", true); room.setReady("other", true); room.setMafiaCount("host", 1); room.startGame("host", 0);
+    const before = room.snapshot().players.find((player) => player.id === "other")!.position;
+    expect(room.move("other", { x: 1, z: 0 }, 0, false, 100, 1, false, true)).toBeUndefined();
+    expect(room.snapshot().players.find((player) => player.id === "other")!.position).toEqual(before);
+  });
+
+  it("90초 회의에서 생존자 채팅과 투표를 기록하고 종료 시 서버가 집계한다", () => {
+    const room = new GameRoom("test");
+    for (const id of ["host", "survivor-a", "survivor-b", "survivor-c"]) { room.join(id, id, undefined, 0); room.setReady(id, true); }
+    room.setMafiaCount("host", 1); room.startGame("host", 0);
+    expect(() => room.callMeeting("host", 1_000)).toThrow("긴급 회의 종");
+    room.teleport("host", EMERGENCY_BELL_POSITION);
+    room.callMeeting("host", 1_000);
+    room.chat("host", "발견 위치를 확인해 주세요", 1_000);
+    room.vote("host", "SKIP");
+    expect(room.snapshot().meeting).toMatchObject({ endsAt: 91_000, messages: [expect.objectContaining({ text: "발견 위치를 확인해 주세요" })], votes: { host: "SKIP" } });
+    expect(room.advance(90_999)).toBe(false);
+    expect(room.advance(91_000)).toBe(true);
+    expect(room.snapshot().gameState).toBe("PLAYING");
+  });
+
+  it("공통 임무 완료는 서버가 시민 승리로 확정한다", () => {
+    const room = new GameRoom("test");
+    room.join("host", "마피아", undefined, 0); room.join("survivor", "시민", undefined, 0);
+    room.setReady("host", true); room.setReady("survivor", true); room.setMafiaCount("host", 1); room.startGame("host", 0);
+    room.completeTaskVictory();
+    expect(room.snapshot()).toMatchObject({ gameState: "GAME_OVER", result: { winner: "SURVIVOR" } });
   });
 
   it("유예 시간 안에는 재접속 상태를 복구한다", () => {

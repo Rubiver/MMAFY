@@ -13,8 +13,11 @@ type GameStore = {
   environment?: EnvironmentState;
   killCooldownUntil?: number;
   aimedKillTargetId?: string;
+  killTargetIds: string[];
   nearbyBodyId?: string;
   repairProgress: number;
+  taskPanelOpen: boolean;
+  cctvOpen: boolean;
   setPlayerPosition: (position: Vector3Data) => void;
   setNearbyDevice: (device?: InteractableState) => void;
   setInteractionMessage: (message?: string) => void;
@@ -24,8 +27,11 @@ type GameStore = {
   setEnvironment: (environment: EnvironmentState) => void;
   setKillCooldown: (remainingMs: number) => void;
   setAimedKillTarget: (playerId?: string) => void;
+  setKillTargetIds: (playerIds: string[]) => void;
   setNearbyBody: (bodyId?: string) => void;
   setRepairProgress: (progress: number) => void;
+  setTaskPanelOpen: (open: boolean) => void;
+  setCctvOpen: (open: boolean) => void;
 };
 
 /** 화면 전용 플레이어 위치와 상호작용 안내 상태를 보관한다. */
@@ -39,11 +45,17 @@ export const useGameStore = create<GameStore>((set) => ({
   setRoom: (room, playerId) => set({ room, playerId, networkError: undefined }),
   setNetworkError: (networkError) => set({ networkError }),
   mafiaIds: [],
+  killTargetIds: [],
   repairProgress: 0,
+  taskPanelOpen: false,
+  cctvOpen: false,
   setRole: (role, mafiaIds) => set({ role, mafiaIds }),
   setEnvironment: (environment) => set({ environment }),
   setKillCooldown: (remainingMs) => set({ killCooldownUntil: Date.now() + remainingMs }),
   setAimedKillTarget: (aimedKillTargetId) => set({ aimedKillTargetId }),
+  setKillTargetIds: (killTargetIds) => set({ killTargetIds }),
   setNearbyBody: (nearbyBodyId) => set({ nearbyBodyId }),
   setRepairProgress: (repairProgress) => set({ repairProgress: Math.min(1, Math.max(0, repairProgress)) }),
+  setTaskPanelOpen: (taskPanelOpen) => set({ taskPanelOpen }),
+  setCctvOpen: (cctvOpen) => set({ cctvOpen }),
 }));

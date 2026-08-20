@@ -3,12 +3,12 @@ import { Billboard, Outlines, PointerLockControls, Text } from "@react-three/dre
 import { Canvas, useFrame, useThree, type RootState } from "@react-three/fiber";
 import { CuboidCollider, Physics, RigidBody } from "@react-three/rapier";
 import * as THREE from "three";
-import { GENERATOR_POSITIONS, KILL_RANGE, REPAIR_HOLD_DURATION_MS, SURVIVOR_BLACKOUT_VIEW_DISTANCE, TREE_POSITIONS, VENT_ENTRANCE_POSITION, WORLD_COLLIDERS, WORLD_DEPTH, WORLD_WIDTH, type GeneratorId, type InteractableState, type Vector3Data } from "@mafia/shared";
+import { CCTV_CONSOLE_POSITION, CIRCUIT_PANEL_POSITION, EMERGENCY_BELL_POSITION, GENERATOR_POSITIONS, KILL_RANGE, REPAIR_HOLD_DURATION_MS, SECURITY_SHUTTER_POSITION, SURVIVOR_BLACKOUT_VIEW_DISTANCE, TREE_POSITIONS, VENT_ENTRANCE_POSITION, WORLD_COLLIDERS, WORLD_DEPTH, WORLD_WIDTH, type GeneratorId, type InteractableState, type Vector3Data } from "@mafia/shared";
 import { getActiveGameClient } from "../network/gameClient";
 import { useGameStore } from "../store/gameStore";
 import { GAME_CONFIG } from "./config";
 import { readMovementInput } from "./input";
-import { findCrosshairInteractable } from "./interactions";
+import { findCrosshairInteractable, findCrosshairKillTarget, findNearbyKillTargets } from "./interactions";
 import { facingYaw, movementSpeed, movementVector } from "./movement";
 import { resolveLocalMovement } from "./localMovement";
 
@@ -17,7 +17,22 @@ const devices: InteractableState[] = [
   { id: "generator-b", name: "발전기 B", type: "GENERATOR", position: GENERATOR_POSITIONS["generator-b"], interactionRange: GAME_CONFIG.interactionRange, currentState: "READY" },
   { id: "maintenance-ladder", name: "정비 사다리", type: "LADDER", position: { x: 72, y: 0, z: -36 }, interactionRange: GAME_CONFIG.interactionRange, currentState: "READY" },
   { id: "forest-vent", name: "숲 환풍구", type: "VENT", position: VENT_ENTRANCE_POSITION, interactionRange: GAME_CONFIG.interactionRange, currentState: "READY" },
+  { id: "emergency-bell", name: "긴급 회의 종", type: "BELL", position: EMERGENCY_BELL_POSITION, interactionRange: 2.4, currentState: "READY" },
+  { id: "circuit-panel", name: "회로 제어반", type: "TASK_PANEL", position: CIRCUIT_PANEL_POSITION, interactionRange: 2.4, currentState: "READY" },
+  { id: "security-shutter", name: "보안 셔터", type: "DOOR", position: SECURITY_SHUTTER_POSITION, interactionRange: 2.4, currentState: "READY" },
+  { id: "cctv-console", name: "CCTV 관제대", type: "CCTV", position: CCTV_CONSOLE_POSITION, interactionRange: 2.4, currentState: "READY" },
 ];
+
+let lastPrimaryActionAt = 0;
+/** 게임 캔버스의 기본 클릭으로 가까운 시체 신고 또는 마피아 처치를 요청한다. */
+function requestPrimaryAction(): void {
+  const now = performance.now();
+  if (now - lastPrimaryActionAt < 150) return;
+  lastPrimaryActionAt = now;
+  const state = useGameStore.getState();
+  if (state.nearbyBodyId) getActiveGameClient()?.report(state.nearbyBodyId);
+  else if (state.role === "MAFIA" && state.aimedKillTargetId) getActiveGameClient()?.kill(state.aimedKillTargetId);
+}
 
 /** 바닥이나 벽에 쓸 단순한 충돌 상자를 만든다.
  * @param position 상자 중심 위치
@@ -34,8 +49,15 @@ function Block({ position, size, color = "#263647" }: { position: [number, numbe
  * @returns 장치 메시와 조명
  */
 function Device({ device }: { device: InteractableState }) {
-  const colors = { GENERATOR: "#f4b942", DOOR: "#4ca7e8", LADDER: "#81c784", VENT: "#a78bfa" };
-  return <group position={[device.position.x, 0, device.position.z]}>{device.type === "LADDER" ? <Block position={[0, 1.4, 0]} size={[0.45, 2.8, 0.2]} color={colors.LADDER} /> : null}{device.type === "GENERATOR" ? <Block position={[0, 0.65, 0]} size={[1.1, 1.3, 0.8]} color={colors.GENERATOR} /> : null}{device.type === "DOOR" ? <Block position={[0, 1.3, 0]} size={[0.25, 2.6, 2.4]} color={colors.DOOR} /> : null}{device.type === "VENT" ? <group position={[0, 0.12, 0]}><mesh><cylinderGeometry args={[1.05, 1.05, 0.22, 24]} /><meshStandardMaterial color={colors.VENT} metalness={0.7} roughness={0.28} /></mesh><mesh position={[0, 0.13, 0]} rotation={[-Math.PI / 2, 0, 0]}><torusGeometry args={[0.72, 0.08, 8, 24]} /><meshStandardMaterial color="#e9d5ff" emissive="#7c3aed" emissiveIntensity={0.55} /></mesh></group> : null}<pointLight color={colors[device.type]} intensity={2} distance={5} position={[0, 1.8, 0]} /></group>;
+  const colors = { GENERATOR: "#f4b942", DOOR: "#4ca7e8", LADDER: "#81c784", VENT: "#a78bfa", BELL: "#facc15", TASK_PANEL: "#22d3ee", CCTV: "#67e8f9" };
+  const nearbyDeviceId = useGameStore((state) => state.nearbyDevice?.id);
+  const role = useGameStore((state) => state.role);
+  const blackout = useGameStore((state) => state.environment?.blackout ?? false);
+  const doorState = useGameStore((state) => state.environment?.doorState ?? "OPEN");
+  const cctvOnline = useGameStore((state) => state.environment?.cctvOnline ?? false);
+  const usable = nearbyDeviceId === device.id && (device.type === "BELL" || device.type === "TASK_PANEL" && role === "SURVIVOR" || device.type === "CCTV" && role === "SURVIVOR" && cctvOnline || device.type === "DOOR" && (role === "MAFIA" && doorState === "CLOSED" || role === "SURVIVOR" && doorState !== "LOCKED") || device.type === "VENT" && role === "MAFIA" || device.type === "GENERATOR" && role === "SURVIVOR" && blackout);
+  const highlightSize: [number, number, number] = device.type === "BELL" ? [1.5, 2.3, 1.5] : device.type === "TASK_PANEL" ? [1.4, 2.1, 0.8] : [1.5, 2, 1.3];
+  return <group position={[device.position.x, 0, device.position.z]}>{device.type === "LADDER" ? <Block position={[0, 1.4, 0]} size={[0.45, 2.8, 0.2]} color={colors.LADDER} /> : null}{device.type === "GENERATOR" ? <Block position={[0, 0.65, 0]} size={[1.1, 1.3, 0.8]} color={colors.GENERATOR} /> : null}{device.type === "DOOR" && doorState !== "OPEN" ? <Block position={[0, 1.5, 0]} size={[0.5, 3, 3.2]} color={doorState === "LOCKED" ? "#ef4444" : colors.DOOR} /> : null}{device.type === "VENT" ? <group position={[0, 0.12, 0]}><mesh><cylinderGeometry args={[1.05, 1.05, 0.22, 24]} /><meshStandardMaterial color={colors.VENT} metalness={0.7} roughness={0.28} /></mesh></group> : null}{device.type === "BELL" ? <group position={[0, 1.05, 0]}><mesh castShadow><sphereGeometry args={[0.55, 20, 16, 0, Math.PI * 2, 0, Math.PI / 2]} /><meshStandardMaterial color={colors.BELL} /></mesh><Text position={[0, 1.05, 0]} fontSize={0.24} color="#fff7cc" anchorX="center">긴급 회의 종</Text></group> : null}{device.type === "TASK_PANEL" ? <group position={[0, 1, 0]}><mesh castShadow><boxGeometry args={[1.1, 1.7, 0.32]} /><meshStandardMaterial color="#164e63" /></mesh><Text position={[0, 1.25, 0]} fontSize={0.22} color="#cffafe" anchorX="center">회로 제어반</Text></group> : null}{device.type === "CCTV" ? <group position={[0, 1.05, 0]}><mesh castShadow><boxGeometry args={[1.5, 1.5, 0.45]} /><meshStandardMaterial color="#152b40" metalness={0.45} /></mesh><mesh position={[0, 0.08, -0.24]}><planeGeometry args={[1.16, 0.76]} /><meshStandardMaterial color={cctvOnline ? "#155e75" : "#172033"} emissive={cctvOnline ? "#0e7490" : "#000000"} emissiveIntensity={cctvOnline ? 0.8 : 0} /></mesh><Text position={[0, 1.35, 0]} fontSize={0.21} color="#cffafe" anchorX="center">CCTV 관제대</Text></group> : null}{usable ? <lineSegments position={[0, highlightSize[1] / 2, 0]} renderOrder={10}><edgesGeometry args={[new THREE.BoxGeometry(...highlightSize)]} /><lineBasicMaterial color="#fde047" depthTest={false} /></lineSegments> : null}<pointLight color={usable ? "#fde047" : colors[device.type]} intensity={usable ? 4 : 2} distance={usable ? 7 : 5} position={[0, 1.8, 0]} /></group>;
 }
 
 /** 숲 지역의 나무 한 그루를 간단한 줄기와 수관으로 표시한다. */
@@ -70,9 +92,13 @@ function PlayerController() {
   const setNearbyDevice = useGameStore((state) => state.setNearbyDevice);
   const setInteractionMessage = useGameStore((state) => state.setInteractionMessage);
   const setAimedKillTarget = useGameStore((state) => state.setAimedKillTarget);
+  const setKillTargetIds = useGameStore((state) => state.setKillTargetIds);
   const setNearbyBody = useGameStore((state) => state.setNearbyBody);
   const setRepairProgress = useGameStore((state) => state.setRepairProgress);
-  const { camera, scene } = useThree();
+  const setTaskPanelOpen = useGameStore((state) => state.setTaskPanelOpen);
+  const setCctvOpen = useGameStore((state) => state.setCctvOpen);
+  const lifeState = useGameStore((state) => state.room?.players.find((item) => item.id === state.playerId)?.lifeState);
+  const { camera, gl } = useThree();
   const lastSendAt = useRef(0);
   const sequence = useRef(0);
   const repairTimer = useRef<number | undefined>(undefined);
@@ -80,7 +106,8 @@ function PlayerController() {
   const repairActive = useRef(false);
   const repairStartedAt = useRef(0);
   const aimedTargetId = useRef<string | undefined>(undefined);
-  const raycaster = useRef(new THREE.Raycaster());
+  const manuallySelectedTargetId = useRef<string | undefined>(undefined);
+  const nearbyKillTargetIds = useRef<string[]>([]);
   const spawnPosition = useGameStore((state) => state.room?.players.find((player) => player.id === state.playerId)?.position);
   const localPosition = useRef<Vector3Data>(spawnPosition ?? { x: 0, y: GAME_CONFIG.playerHeight, z: 4 });
 
@@ -88,11 +115,31 @@ function PlayerController() {
     /** 키를 이동 입력 집합에 추가하고, 조준한 발전기의 복구를 시작한다. */
     const onKeyDown = (event: KeyboardEvent) => {
       pressed.current.add(event.code);
+      const state = useGameStore.getState();
+      if (state.role === "MAFIA" && (event.code === "KeyQ" || event.code === "KeyF")) {
+        event.preventDefault();
+        const targets = nearbyKillTargetIds.current;
+        if (event.code === "KeyQ") {
+          if (!targets.length) { setInteractionMessage("처치 거리 안에 시민이 없습니다."); return; }
+          const currentIndex = targets.indexOf(aimedTargetId.current ?? "");
+          const targetId = targets[(currentIndex + 1) % targets.length];
+          manuallySelectedTargetId.current = targetId;
+          aimedTargetId.current = targetId;
+          setAimedKillTarget(targetId);
+          const target = state.room?.players.find((player) => player.id === targetId);
+          setInteractionMessage(`${target?.displayName ?? "시민"} 선택 · [F] 또는 좌클릭으로 처치`);
+        } else if (state.aimedKillTargetId) getActiveGameClient()?.kill(state.aimedKillTargetId);
+        else setInteractionMessage("처치 거리 안의 시민을 찾지 못했습니다.");
+        return;
+      }
       if (event.code !== "KeyE" || event.repeat || repairActive.current) return;
       const position = localPosition.current; const direction = new THREE.Vector3(); camera.getWorldDirection(direction);
       const device = position ? findCrosshairInteractable(position, direction, devices) : undefined;
       if (!device) { setInteractionMessage("장치를 크로스헤어로 조준한 뒤 [E]를 누르세요."); return; }
-      const state = useGameStore.getState();
+      if (device.type === "BELL") { setInteractionMessage("긴급 회의 종을 울립니다."); getActiveGameClient()?.callMeeting(); return; }
+      if (device.type === "TASK_PANEL") { if (state.role !== "SURVIVOR") setInteractionMessage("회로 제어반은 시민만 사용할 수 있습니다."); else { document.exitPointerLock(); setTaskPanelOpen(true); } return; }
+      if (device.type === "CCTV") { if (state.role !== "SURVIVOR" || !state.environment?.cctvOnline) setInteractionMessage("CCTV는 전력이 정상일 때 시민만 사용할 수 있습니다."); else { document.exitPointerLock(); getActiveGameClient()?.environment("CCTV_OPEN"); setCctvOpen(true); } return; }
+      if (device.type === "DOOR") { getActiveGameClient()?.environment(state.role === "MAFIA" ? "DOOR_LOCK" : "DOOR_TOGGLE"); return; }
       if (device.type === "VENT") { if (state.role !== "MAFIA") setInteractionMessage("환풍구는 마피아만 사용할 수 있습니다."); else { setInteractionMessage("환풍구를 통해 동쪽 출구로 이동합니다."); getActiveGameClient()?.environment("VENT"); } return; }
       if (device.type !== "GENERATOR" || state.role !== "SURVIVOR" || !state.environment?.blackout) { setInteractionMessage(`${device.name}은 지금 상호작용할 수 없습니다.`); return; }
       repairActive.current = true;
@@ -120,22 +167,34 @@ function PlayerController() {
       setRepairProgress(0);
       getActiveGameClient()?.environment("REPAIR_CANCEL");
     };
-    /** 포인터 잠금 중 좌클릭으로 처치 또는 가까운 시체 신고를 요청한다. */
+    /** 게임 캔버스 클릭으로 처치 또는 가까운 시체 신고를 요청한다. */
     const onMouseDown = (event: MouseEvent) => {
-      if (event.button !== 0 || !(document.pointerLockElement instanceof HTMLCanvasElement)) return;
-      const state = useGameStore.getState();
-      if (state.role === "MAFIA" && state.aimedKillTargetId) getActiveGameClient()?.kill(state.aimedKillTargetId);
-      else if (state.nearbyBodyId) getActiveGameClient()?.report(state.nearbyBodyId);
+      if (event.button !== 0) return;
+      requestPrimaryAction();
     };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
-    window.addEventListener("mousedown", onMouseDown);
-    return () => { window.removeEventListener("keydown", onKeyDown); window.removeEventListener("keyup", onKeyUp); window.removeEventListener("mousedown", onMouseDown); if (repairTimer.current !== undefined) window.clearTimeout(repairTimer.current); if (repairProgressTimer.current !== undefined) window.clearInterval(repairProgressTimer.current); setRepairProgress(0); if (repairActive.current) getActiveGameClient()?.environment("REPAIR_CANCEL"); };
-  }, [camera, setAimedKillTarget, setInteractionMessage, setRepairProgress]);
+    gl.domElement.addEventListener("mousedown", onMouseDown);
+    return () => { window.removeEventListener("keydown", onKeyDown); window.removeEventListener("keyup", onKeyUp); gl.domElement.removeEventListener("mousedown", onMouseDown); if (repairTimer.current !== undefined) window.clearTimeout(repairTimer.current); if (repairProgressTimer.current !== undefined) window.clearInterval(repairProgressTimer.current); setRepairProgress(0); if (repairActive.current) getActiveGameClient()?.environment("REPAIR_CANCEL"); };
+  }, [camera, gl, setAimedKillTarget, setInteractionMessage, setRepairProgress]);
 
   useFrame((_state, delta) => {
+    const state = useGameStore.getState();
+    if (state.cctvOpen) return;
+    const localPlayer = state.room?.players.find((item) => item.id === state.playerId);
+    if (localPlayer?.lifeState !== "ALIVE") {
+      const observed = state.room?.players.find((item) => item.id !== state.playerId && item.connected && item.lifeState === "ALIVE");
+      if (observed) {
+        const destination = new THREE.Vector3(observed.position.x, observed.position.y + 5, observed.position.z + 6);
+        camera.position.lerp(destination, 0.08);
+        camera.lookAt(observed.position.x, observed.position.y + 0.8, observed.position.z);
+      }
+      setNearbyBody(undefined);
+      setAimedKillTarget(undefined);
+      return;
+    }
     if (!player.current) return;
-    const authoritativePosition = useGameStore.getState().room?.players.find((item) => item.id === useGameStore.getState().playerId)?.position;
+    const authoritativePosition = localPlayer?.position;
     if (authoritativePosition && Math.hypot(localPosition.current.x - authoritativePosition.x, localPosition.current.z - authoritativePosition.z) > 10) {
       localPosition.current = { ...authoritativePosition };
       player.current.position.set(authoritativePosition.x, authoritativePosition.y, authoritativePosition.z);
@@ -151,27 +210,30 @@ function PlayerController() {
     const heading = forward.clone();
     const right = new THREE.Vector3(-heading.z, 0, heading.x);
     const velocity = heading.clone().multiplyScalar(-direction.z).add(right.multiplyScalar(direction.x)).multiplyScalar(movementSpeed(input.run));
-    const position = resolveLocalMovement(localPosition.current, { x: velocity.x * Math.min(delta, 0.05), z: velocity.z * Math.min(delta, 0.05) });
+    const position = resolveLocalMovement(localPosition.current, { x: velocity.x * Math.min(delta, 0.05), z: velocity.z * Math.min(delta, 0.05) }, useGameStore.getState().environment?.doorState !== "OPEN");
     localPosition.current = position;
     player.current.position.set(position.x, position.y, position.z);
     camera.position.set(position.x, position.y + 0.65, position.z);
     setPlayerPosition(position);
     const cameraDirection = new THREE.Vector3(); camera.getWorldDirection(cameraDirection);
     setNearbyDevice(findCrosshairInteractable(position, cameraDirection, devices));
-    const state = useGameStore.getState();
     const nearbyBody = state.room?.players.filter((item) => item.lifeState === "DEAD" && item.bodyId).map((item) => ({ bodyId: item.bodyId!, distance: Math.hypot(position.x - item.position.x, position.z - item.position.z) })).sort((left, right) => left.distance - right.distance)[0];
     setNearbyBody(nearbyBody && nearbyBody.distance <= 2 ? nearbyBody.bodyId : undefined);
-    raycaster.current.setFromCamera(new THREE.Vector2(0, 0), camera);
-    const hit = state.role === "MAFIA" && Date.now() >= (state.killCooldownUntil ?? 0) ? raycaster.current.intersectObjects(scene.children, true).find((intersection) => typeof intersection.object.userData.killTargetId === "string") : undefined;
-    const targetId = hit?.object.userData.killTargetId as string | undefined;
-    const target = targetId ? state.room?.players.find((player) => player.id === targetId) : undefined;
-    const canKillTarget = target && target.lifeState === "ALIVE" && !state.mafiaIds.includes(target.id) && Math.hypot(position.x - target.position.x, position.z - target.position.z) <= KILL_RANGE;
-    const nextTargetId = canKillTarget ? targetId : undefined;
+    const targets = state.role === "MAFIA" && Date.now() >= (state.killCooldownUntil ?? 0)
+      ? findNearbyKillTargets(position, state.room?.players ?? [], state.mafiaIds)
+      : [];
+    const targetIds = targets.map((target) => target.id);
+    if (nearbyKillTargetIds.current.join(",") !== targetIds.join(",")) { nearbyKillTargetIds.current = targetIds; setKillTargetIds(targetIds); }
+    const selectedTarget = manuallySelectedTargetId.current ? targets.find((target) => target.id === manuallySelectedTargetId.current) : undefined;
+    if (!selectedTarget) manuallySelectedTargetId.current = undefined;
+    const target = selectedTarget ?? findCrosshairKillTarget(position, cameraDirection, targets, state.mafiaIds) ?? targets[0];
+    const nextTargetId = target?.id;
     if (aimedTargetId.current !== nextTargetId) { aimedTargetId.current = nextTargetId; setAimedKillTarget(nextTargetId); }
     const now = performance.now();
     if (now - lastSendAt.current >= 1000 / 15) { lastSendAt.current = now; getActiveGameClient()?.move({ x: velocity.x / movementSpeed(input.run), z: velocity.z / movementSpeed(input.run) }, facingYaw(heading), input.run, ++sequence.current); }
   });
 
+  if (lifeState !== "ALIVE") return null;
   return <group ref={player} position={[localPosition.current.x, localPosition.current.y, localPosition.current.z]}><mesh castShadow><capsuleGeometry args={[0.35, 1, 8, 16]} /><meshStandardMaterial color="#e8eef7" /></mesh></group>;
 }
 
@@ -267,4 +329,4 @@ function focusGameCanvas({ gl }: RootState): void {
 /** 서쪽 숲과 동쪽 산업 지대를 잇는 180미터 야외 맵을 렌더링한다.
  * @returns React Three Fiber 캔버스
  */
-export function World() { return <Canvas shadows camera={{ position: [0, 2, 7], fov: 75 }} onCreated={focusGameCanvas}><color attach="background" args={["#87b7d1"]} /><ambientLight intensity={1.1} /><hemisphereLight intensity={1.35} color="#e7f3ff" groundColor="#35582d" /><directionalLight castShadow intensity={1.8} position={[40, 70, 20]} shadow-mapSize={[2048, 2048]} /><BlackoutVision /><GeneratorBlackoutOutline /><Physics gravity={[0, -18, 0]}><Block position={[0, -0.15, 0]} size={[WORLD_WIDTH, 0.3, WORLD_DEPTH]} color="#496b3c" /><OutdoorLandmarks />{WORLD_COLLIDERS.filter((collider) => !collider.id.startsWith("river-")).map((collider) => <Block key={collider.id} position={[collider.position.x, collider.position.y, collider.position.z]} size={[collider.size.x, collider.size.y, collider.size.z]} color={collider.id.includes("station") ? "#56616b" : collider.id.endsWith("wall") ? "#6e6556" : "#8a6a59"} />)}{devices.map((device) => <Device key={device.id} device={device} />)}<PlayerController /><RemotePlayers /><Bodies /></Physics><PointerLockControls /></Canvas>; }
+export function World() { return <Canvas shadows camera={{ position: [0, 2, 7], fov: 75 }} onCreated={focusGameCanvas} onPointerDown={(event) => { if (event.button === 0) requestPrimaryAction(); }}><color attach="background" args={["#87b7d1"]} /><ambientLight intensity={1.1} /><hemisphereLight intensity={1.35} color="#e7f3ff" groundColor="#35582d" /><directionalLight castShadow intensity={1.8} position={[40, 70, 20]} shadow-mapSize={[2048, 2048]} /><BlackoutVision /><GeneratorBlackoutOutline /><Physics gravity={[0, -18, 0]}><Block position={[0, -0.15, 0]} size={[WORLD_WIDTH, 0.3, WORLD_DEPTH]} color="#496b3c" /><OutdoorLandmarks />{WORLD_COLLIDERS.filter((collider) => !collider.id.startsWith("river-")).map((collider) => <Block key={collider.id} position={[collider.position.x, collider.position.y, collider.position.z]} size={[collider.size.x, collider.size.y, collider.size.z]} color={collider.id.includes("station") ? "#56616b" : collider.id.endsWith("wall") ? "#6e6556" : "#8a6a59"} />)}{devices.map((device) => <Device key={device.id} device={device} />)}<PlayerController /><RemotePlayers /><Bodies /></Physics><PointerLockControls /></Canvas>; }

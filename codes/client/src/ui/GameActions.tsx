@@ -37,6 +37,35 @@ function RepairProgressIndicator() {
   return <div className="pointer-events-none fixed left-1/2 top-1/2 z-20 w-44 -translate-x-1/2 translate-y-7" aria-label={`발전기 복구 진행 ${Math.round(progress * 100)}퍼센트`}><div className="mb-1 flex justify-between text-[11px] font-bold text-amber-100"><span>발전기 복구 중</span><span>{Math.ceil((1 - progress) * 3)}초</span></div><div className="h-2 overflow-hidden rounded-full border border-amber-200/60 bg-slate-950/80"><div className="h-full rounded-full bg-amber-400 transition-[width] duration-75" style={{ width: `${progress * 100}%` }} /></div></div>;
 }
 
+/** 시민이 회로 제어반에서 순서 퍼즐을 풀 수 있는 패널이다.
+ * @returns 회로 퍼즐 패널 또는 없음
+ */
+function CircuitTaskPanel() {
+  const open = useGameStore((state) => state.taskPanelOpen);
+  const setOpen = useGameStore((state) => state.setTaskPanelOpen);
+  const setMessage = useGameStore((state) => state.setInteractionMessage);
+  const [sequence, setSequence] = useState<string[]>([]);
+  const colors = [{ id: "AMBER", name: "호박", className: "bg-amber-400 text-amber-950" }, { id: "CYAN", name: "청록", className: "bg-cyan-400 text-cyan-950" }, { id: "VIOLET", name: "보라", className: "bg-violet-400 text-violet-950" }];
+  if (!open) return null;
+  const choose = (color: string) => { const next = [...sequence, color]; if (next.length < 3) { setSequence(next); return; } getActiveGameClient()?.environment("TASK", undefined, next); setSequence([]); setOpen(false); setMessage("회로 연결 결과를 서버에 확인합니다."); restoreGamePointerLock(); };
+  return <section className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/70 p-4" aria-label="회로 연결 퍼즐"><div className="w-full max-w-md rounded-3xl border border-cyan-200/40 bg-slate-900 p-5 shadow-2xl sm:p-7"><p className="text-xs font-bold tracking-[0.16em] text-cyan-300">공통 임무 · 회로 제어반</p><h2 className="mt-2 text-2xl font-bold text-white">빛의 순서대로 회로를 연결하세요</h2><p className="mt-2 text-sm leading-6 text-slate-300">위의 신호 순서는 <b className="text-amber-200">호박 → 청록 → 보라</b>입니다. 올바르게 연결하면 공통 임무가 25% 진행됩니다.</p><div className="mt-5 flex h-14 items-center justify-center gap-2 rounded-2xl border border-slate-700 bg-slate-950/80">{[0, 1, 2].map((index) => <span key={index} className="flex h-9 w-20 items-center justify-center rounded-lg bg-slate-800 text-xs font-bold text-slate-300">{sequence[index] ? colors.find((color) => color.id === sequence[index])?.name : "?"}</span>)}</div><div className="mt-5 grid grid-cols-3 gap-3">{colors.map((color) => <button key={color.id} type="button" onClick={() => choose(color.id)} className={`min-h-16 rounded-2xl px-2 py-3 text-sm font-bold transition hover:scale-[1.03] focus:outline-none focus:ring-2 focus:ring-white ${color.className}`}>{color.name}</button>)}</div><button type="button" onClick={() => { setSequence([]); setOpen(false); restoreGamePointerLock(); }} className="mt-4 w-full rounded-xl bg-slate-800 px-4 py-3 text-sm font-semibold text-slate-200">취소</button></div></section>;
+}
+
+/** 시민이 관제실에서만 열 수 있는 원격 참가자 관제 화면이다.
+ * @returns CCTV 관제 화면 또는 없음
+ */
+function CctvPanel() {
+  const open = useGameStore((state) => state.cctvOpen);
+  const room = useGameStore((state) => state.room);
+  const online = useGameStore((state) => state.environment?.cctvOnline ?? false);
+  const setOpen = useGameStore((state) => state.setCctvOpen);
+  const close = () => { getActiveGameClient()?.environment("CCTV_CLOSE"); setOpen(false); restoreGamePointerLock(); };
+  useEffect(() => { if (open && !online) setOpen(false); }, [online, open, setOpen]);
+  if (!open) return null;
+  const alive = room?.players.filter((player) => player.lifeState === "ALIVE" && player.connected) ?? [];
+  return <section className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/80 p-3 sm:p-6" aria-label="CCTV 관제 화면"><div className="w-full max-w-5xl rounded-3xl border border-cyan-200/35 bg-slate-950 p-4 shadow-2xl shadow-cyan-950/40 sm:p-6"><div className="flex items-start justify-between gap-3"><div><p className="text-[11px] font-bold tracking-[0.18em] text-cyan-300">관제실 · 이동 잠금</p><h2 className="mt-1 text-xl font-bold text-white sm:text-2xl">CCTV 실시간 관제</h2></div><button type="button" onClick={close} className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-slate-700">닫기 · Esc</button></div><p className="mt-2 text-sm text-slate-300">각 신호는 서버가 공유한 생존자 위치입니다. 관제를 닫아야 다시 움직일 수 있습니다.</p><div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{alive.map((player, index) => <article key={player.id} className="relative min-h-32 overflow-hidden rounded-2xl border border-cyan-200/20 bg-[linear-gradient(135deg,#0d2839,#071018)] p-4"><div className="absolute inset-0 opacity-30 [background-image:linear-gradient(rgba(103,232,249,.16)_1px,transparent_1px),linear-gradient(90deg,rgba(103,232,249,.16)_1px,transparent_1px)] [background-size:18px_18px]" /><div className="relative flex items-center justify-between text-[10px] font-bold tracking-wider text-cyan-200"><span>CAM-{String(index + 1).padStart(2, "0")}</span><span className="rounded bg-emerald-400/20 px-2 py-1 text-emerald-200">신호 정상</span></div><div className="relative mt-7"><b className="text-lg text-white">{player.displayName}</b><p className="mt-1 text-xs text-cyan-100/80">위치 X {Math.round(player.position.x)} · Z {Math.round(player.position.z)}</p></div></article>)}{alive.length === 0 ? <p className="text-sm text-slate-300">표시할 생존자 신호가 없습니다.</p> : null}</div></div></section>;
+}
+
 /** 사보타지 지도를 닫은 직후 게임 캔버스에 포커스와 포인터 잠금을 되돌린다. */
 function restoreGamePointerLock(): void {
   const canvas = document.querySelector<HTMLCanvasElement>("canvas");
@@ -54,6 +83,11 @@ export function GameActions() {
   const role = useGameStore((state) => state.role);
   const blackout = useGameStore((state) => state.environment?.blackout ?? false);
   const aimedKillTargetId = useGameStore((state) => state.aimedKillTargetId);
+  const killTargetIds = useGameStore((state) => state.killTargetIds);
+  const taskPanelOpen = useGameStore((state) => state.taskPanelOpen);
+  const setTaskPanelOpen = useGameStore((state) => state.setTaskPanelOpen);
+  const cctvOpen = useGameStore((state) => state.cctvOpen);
+  const setCctvOpen = useGameStore((state) => state.setCctvOpen);
   const [sabotageHeld, setSabotageHeld] = useState(false);
 
   useEffect(() => {
@@ -65,19 +99,20 @@ export function GameActions() {
       restoreGamePointerLock();
     };
     /** 마피아가 Caps Lock을 누르는 동안 포인터 잠금을 풀고 시설 지도를 연다. */
-    const onKeyDown = (event: KeyboardEvent) => { if (role === "MAFIA" && event.code === "CapsLock" && !event.repeat) { event.preventDefault(); restoreAfterPointerUnlock = false; document.exitPointerLock(); setSabotageHeld(true); } if (event.code === "Escape") { event.preventDefault(); setSabotageHeld(false); if (document.pointerLockElement) restoreAfterPointerUnlock = true; else restoreGamePointerLock(); } };
+    const onKeyDown = (event: KeyboardEvent) => { if (role === "MAFIA" && event.code === "CapsLock" && !event.repeat) { event.preventDefault(); restoreAfterPointerUnlock = false; document.exitPointerLock(); setSabotageHeld(true); } if (event.code === "Escape") { event.preventDefault(); setSabotageHeld(false); if (taskPanelOpen) setTaskPanelOpen(false); if (cctvOpen) { getActiveGameClient()?.environment("CCTV_CLOSE"); setCctvOpen(false); } if (document.pointerLockElement) restoreAfterPointerUnlock = true; else restoreGamePointerLock(); } };
     /** Caps Lock을 놓으면 지도와 포인터를 원래 게임 조작으로 되돌린다. */
     const onKeyUp = (event: KeyboardEvent) => { if (event.code === "CapsLock") { event.preventDefault(); setSabotageHeld(false); if (document.pointerLockElement) restoreAfterPointerUnlock = true; else restoreGamePointerLock(); } };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
     document.addEventListener("pointerlockchange", onPointerLockChange);
     return () => { window.removeEventListener("keydown", onKeyDown); window.removeEventListener("keyup", onKeyUp); document.removeEventListener("pointerlockchange", onPointerLockChange); };
-  }, [role]);
+  }, [cctvOpen, role, setCctvOpen, setTaskPanelOpen, taskPanelOpen]);
 
   if (!room || !id) return null;
   const me = room.players.find((player) => player.id === id);
   const canAct = room.gameState === "PLAYING" && me?.lifeState === "ALIVE";
   const sabotage = (generatorId: GeneratorId) => { if (canAct) getActiveGameClient()?.environment("SABOTAGE", generatorId); };
   const aimedTarget = aimedKillTargetId ? room.players.find((player) => player.id === aimedKillTargetId) : undefined;
-  return <><SabotageMap held={role === "MAFIA" && sabotageHeld} blackout={blackout} onSabotage={sabotage} /><KillCooldownIndicator /><RepairProgressIndicator /><aside className="fixed bottom-4 left-4 right-28 z-10 flex flex-wrap gap-2 rounded-xl bg-slate-950/90 p-3 text-sm text-white sm:left-auto sm:right-32 sm:w-[420px]"><span className="mr-auto self-center">역할: <b className={role === "MAFIA" ? "text-rose-300" : "text-cyan-300"}>{role === "MAFIA" ? "마피아" : "생존자"}</b> {blackout ? "· 정전" : "· 전력 정상"}</span>{canAct ? <><button type="button" onClick={() => getActiveGameClient()?.callMeeting()} className="rounded bg-amber-500 px-3 py-2 font-semibold text-slate-950">긴급 회의</button>{role === "MAFIA" ? <span className="self-center text-xs text-rose-200">{aimedTarget ? `${aimedTarget.displayName} 조준 중 · 좌클릭 처치` : "시민을 크로스헤어로 조준해 좌클릭 처치 · Caps 시설 지도"}</span> : <span className="self-center text-xs text-emerald-200">고장 난 발전기를 조준하고 E를 누르세요.</span>}</> : null}</aside></>;
+  const killTargets = killTargetIds.map((targetId) => room.players.find((player) => player.id === targetId)).filter((player): player is NonNullable<typeof player> => Boolean(player));
+  return <><SabotageMap held={role === "MAFIA" && sabotageHeld} blackout={blackout} onSabotage={sabotage} /><CircuitTaskPanel /><CctvPanel /><KillCooldownIndicator /><RepairProgressIndicator /><aside className="fixed bottom-4 left-4 right-28 z-10 flex flex-wrap gap-2 rounded-xl bg-slate-950/90 p-3 text-sm text-white sm:left-auto sm:right-32 sm:w-[420px]"><span className="mr-auto self-center">역할: <b className={role === "MAFIA" ? "text-rose-300" : "text-cyan-300"}>{role === "MAFIA" ? "마피아" : "생존자"}</b> {blackout ? "· 정전" : "· 전력 정상"}</span>{canAct ? <>{role === "MAFIA" ? <div className="flex w-full flex-wrap items-center gap-2 text-xs text-rose-100">{killTargets.length ? <>{killTargets.map((target) => <button key={target.id} type="button" onClick={() => getActiveGameClient()?.kill(target.id)} className={`rounded px-2 py-1 font-semibold ${target.id === aimedTarget?.id ? "bg-rose-500 text-white" : "bg-rose-950/70 text-rose-100"}`}>처치: {target.displayName}</button>)}<span>{aimedTarget ? `${aimedTarget.displayName} 선택 · [Q] 대상 전환 · [F]/좌클릭 처치` : "[Q]로 처치 대상을 선택하세요."}</span></> : <span>처치 거리 안에 시민이 없습니다 · Caps 시설 지도</span>}</div> : <span className="self-center text-xs text-emerald-200">회로 제어반, CCTV 관제대와 긴급 회의 종을 조준하고 E를 누르세요.</span>}</> : null}</aside></>;
 }
