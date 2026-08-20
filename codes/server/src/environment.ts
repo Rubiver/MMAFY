@@ -1,6 +1,4 @@
-import { REPAIR_HOLD_DURATION_MS, type EnvironmentState, type GeneratorId, type RoleTeam, type Vector3Data } from "@mafia/shared";
-
-const GENERATOR_POSITIONS: Record<GeneratorId, Vector3Data> = { "generator-a": { x: -12, y: 0, z: -8 }, "generator-b": { x: 12, y: 0, z: 8 } };
+import { GENERATOR_POSITIONS, REPAIR_HOLD_DURATION_MS, VENT_ENTRANCE_POSITION, VENT_EXIT_POSITION, type EnvironmentState, type GeneratorId, type RoleTeam, type Vector3Data } from "@mafia/shared";
 const INITIAL_STATE: EnvironmentState = { blackout: false, generatorOnline: true, generators: { "generator-a": true, "generator-b": true }, cctvOnline: true, doorLocked: false, taskProgress: 0 };
 
 /** 환경 장치의 거리, 역할, 쿨타임을 서버에서 검증한다. */
@@ -22,9 +20,9 @@ export class EnvironmentSystem {
   /** 버튼을 놓거나 취소한 시민의 복구 진행 상태를 제거한다. */
   cancelRepair(playerId: string): void { this.repairStarts.delete(playerId); }
   /** 마피아 전용 환풍구 이동 권한을 검증한다. */
-  useVent(team: RoleTeam, position: Vector3Data): Vector3Data { this.require(team === "MAFIA" && near(position, { x: 12, y: 0, z: -8 }), "환풍구 권한 또는 거리가 올바르지 않습니다."); return { x: -12, y: 1.4, z: -8 }; }
+  useVent(team: RoleTeam, position: Vector3Data): Vector3Data { this.require(team === "MAFIA" && near(position, VENT_ENTRANCE_POSITION), "환풍구 권한 또는 거리가 올바르지 않습니다."); return { ...VENT_EXIT_POSITION }; }
   /** 공동 임무 진행도를 서버에서 누적한다. */
-  completeTask(team: RoleTeam, position: Vector3Data): void { this.require(team === "SURVIVOR" && near(position, { x: -12, y: 0, z: -8 }), "임무 조건을 만족하지 않습니다."); this.state.taskProgress = Math.min(100, this.state.taskProgress + 25); }
+  completeTask(team: RoleTeam, position: Vector3Data): void { this.require(team === "SURVIVOR" && near(position, GENERATOR_POSITIONS["generator-a"]), "임무 조건을 만족하지 않습니다."); this.state.taskProgress = Math.min(100, this.state.taskProgress + 25); }
   private ready(id: string, now: number): boolean { const last = this.cooldowns.get(id) ?? -Infinity; if (now - last < 1000) return false; this.cooldowns.set(id, now); return true; }
   private require(condition: boolean, message: string): asserts condition { if (!condition) throw new Error(message); }
 }

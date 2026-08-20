@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { GENERATOR_POSITIONS, VENT_ENTRANCE_POSITION, VENT_EXIT_POSITION } from "@mafia/shared";
 import { EnvironmentSystem } from "./environment.js";
 
-const generator = { x: -12, y: 1.4, z: -8 };
+const generator = { ...GENERATOR_POSITIONS["generator-a"], y: 1.4 };
 
 describe("EnvironmentSystem", () => {
   it("마피아가 발전기 근처에서 정전을 시작하면 전력과 CCTV를 끈다", () => {
@@ -38,5 +39,11 @@ describe("EnvironmentSystem", () => {
     const environment = new EnvironmentSystem();
     environment.sabotage("mafia", "MAFIA", "generator-b", 1_000);
     expect(() => environment.startRepair("survivor", "SURVIVOR", "generator-a", generator, 2_000)).toThrow("복구 시작");
+  });
+
+  it("마피아만 서쪽 숲 환풍구에서 동쪽 출구로 이동할 수 있다", () => {
+    const environment = new EnvironmentSystem();
+    expect(environment.useVent("MAFIA", VENT_ENTRANCE_POSITION)).toEqual(VENT_EXIT_POSITION);
+    expect(() => environment.useVent("SURVIVOR", VENT_ENTRANCE_POSITION)).toThrow("환풍구");
   });
 });

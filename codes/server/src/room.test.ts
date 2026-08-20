@@ -61,7 +61,7 @@ describe("GameRoom", () => {
     expect(room.snapshot().players.every((player) => player.position.y === 1.4)).toBe(true);
   });
 
-  it("서버는 내부 맵 벽을 통과하는 이동을 막는다", () => {
+  it("서버는 확장 맵 바깥 경계 벽을 통과하는 이동을 막는다", () => {
     const room = new GameRoom("test");
     room.join("host", "방장", undefined, 0);
     room.join("other", "상대", undefined, 0);
@@ -69,8 +69,8 @@ describe("GameRoom", () => {
     room.setReady("other", true);
     room.setMafiaCount("host", 1);
     room.startGame("host");
-    for (let now = 100; now <= 10_000; now += 100) room.move("host", { x: 0, z: 1 }, 0, false, now);
-    expect(room.snapshot().players.find((player) => player.id === "host")!.position.z).toBeLessThan(13.48);
+    for (let now = 100; now <= 50_000; now += 100) room.move("host", { x: 0, z: 1 }, 0, false, now);
+    expect(room.snapshot().players.find((player) => player.id === "host")!.position.z).toBeLessThan(69.4);
   });
 
   it("유효하지 않은 이동 값은 위치에 반영하지 않는다", () => {

@@ -3,7 +3,7 @@ import { Billboard, Outlines, PointerLockControls, Text } from "@react-three/dre
 import { Canvas, useFrame, useThree, type RootState } from "@react-three/fiber";
 import { CuboidCollider, Physics, RigidBody } from "@react-three/rapier";
 import * as THREE from "three";
-import { KILL_RANGE, REPAIR_HOLD_DURATION_MS, SURVIVOR_BLACKOUT_VIEW_DISTANCE, WORLD_COLLIDERS, type GeneratorId, type InteractableState, type Vector3Data } from "@mafia/shared";
+import { GENERATOR_POSITIONS, KILL_RANGE, REPAIR_HOLD_DURATION_MS, SURVIVOR_BLACKOUT_VIEW_DISTANCE, TREE_POSITIONS, VENT_ENTRANCE_POSITION, WORLD_COLLIDERS, WORLD_DEPTH, WORLD_WIDTH, type GeneratorId, type InteractableState, type Vector3Data } from "@mafia/shared";
 import { getActiveGameClient } from "../network/gameClient";
 import { useGameStore } from "../store/gameStore";
 import { GAME_CONFIG } from "./config";
@@ -13,9 +13,10 @@ import { facingYaw, movementSpeed, movementVector } from "./movement";
 import { resolveLocalMovement } from "./localMovement";
 
 const devices: InteractableState[] = [
-  { id: "generator-a", name: "발전기 A", type: "GENERATOR", position: { x: -12, y: 0, z: -8 }, interactionRange: GAME_CONFIG.interactionRange, currentState: "READY" },
-  { id: "generator-b", name: "발전기 B", type: "GENERATOR", position: { x: 12, y: 0, z: 8 }, interactionRange: GAME_CONFIG.interactionRange, currentState: "READY" },
-  { id: "maintenance-ladder", name: "정비 사다리", type: "LADDER", position: { x: 12, y: 0, z: -8 }, interactionRange: GAME_CONFIG.interactionRange, currentState: "READY" },
+  { id: "generator-a", name: "발전기 A", type: "GENERATOR", position: GENERATOR_POSITIONS["generator-a"], interactionRange: GAME_CONFIG.interactionRange, currentState: "READY" },
+  { id: "generator-b", name: "발전기 B", type: "GENERATOR", position: GENERATOR_POSITIONS["generator-b"], interactionRange: GAME_CONFIG.interactionRange, currentState: "READY" },
+  { id: "maintenance-ladder", name: "정비 사다리", type: "LADDER", position: { x: 72, y: 0, z: -36 }, interactionRange: GAME_CONFIG.interactionRange, currentState: "READY" },
+  { id: "forest-vent", name: "숲 환풍구", type: "VENT", position: VENT_ENTRANCE_POSITION, interactionRange: GAME_CONFIG.interactionRange, currentState: "READY" },
 ];
 
 /** 바닥이나 벽에 쓸 단순한 충돌 상자를 만든다.
@@ -33,8 +34,19 @@ function Block({ position, size, color = "#263647" }: { position: [number, numbe
  * @returns 장치 메시와 조명
  */
 function Device({ device }: { device: InteractableState }) {
-  const colors = { GENERATOR: "#f4b942", DOOR: "#4ca7e8", LADDER: "#81c784" };
-  return <group position={[device.position.x, 0, device.position.z]}>{device.type === "LADDER" ? <Block position={[0, 1.4, 0]} size={[0.45, 2.8, 0.2]} color={colors.LADDER} /> : null}{device.type === "GENERATOR" ? <Block position={[0, 0.65, 0]} size={[1.1, 1.3, 0.8]} color={colors.GENERATOR} /> : null}{device.type === "DOOR" ? <Block position={[0, 1.3, 0]} size={[0.25, 2.6, 2.4]} color={colors.DOOR} /> : null}<pointLight color={colors[device.type]} intensity={2} distance={3} position={[0, 1.8, 0]} /></group>;
+  const colors = { GENERATOR: "#f4b942", DOOR: "#4ca7e8", LADDER: "#81c784", VENT: "#a78bfa" };
+  return <group position={[device.position.x, 0, device.position.z]}>{device.type === "LADDER" ? <Block position={[0, 1.4, 0]} size={[0.45, 2.8, 0.2]} color={colors.LADDER} /> : null}{device.type === "GENERATOR" ? <Block position={[0, 0.65, 0]} size={[1.1, 1.3, 0.8]} color={colors.GENERATOR} /> : null}{device.type === "DOOR" ? <Block position={[0, 1.3, 0]} size={[0.25, 2.6, 2.4]} color={colors.DOOR} /> : null}{device.type === "VENT" ? <group position={[0, 0.12, 0]}><mesh><cylinderGeometry args={[1.05, 1.05, 0.22, 24]} /><meshStandardMaterial color={colors.VENT} metalness={0.7} roughness={0.28} /></mesh><mesh position={[0, 0.13, 0]} rotation={[-Math.PI / 2, 0, 0]}><torusGeometry args={[0.72, 0.08, 8, 24]} /><meshStandardMaterial color="#e9d5ff" emissive="#7c3aed" emissiveIntensity={0.55} /></mesh></group> : null}<pointLight color={colors[device.type]} intensity={2} distance={5} position={[0, 1.8, 0]} /></group>;
+}
+
+/** 숲 지역의 나무 한 그루를 간단한 줄기와 수관으로 표시한다. */
+function Tree({ position }: { position: Vector3Data }) {
+  return <group position={[position.x, 0, position.z]}><mesh castShadow position={[0, 1.5, 0]}><cylinderGeometry args={[0.42, 0.58, 3, 8]} /><meshStandardMaterial color="#5d3a22" roughness={1} /></mesh><mesh castShadow position={[0, 4.1, 0]}><coneGeometry args={[2.4, 4.8, 10]} /><meshStandardMaterial color="#245a3d" roughness={0.9} /></mesh><mesh castShadow position={[0, 5.7, 0]}><coneGeometry args={[1.8, 3.8, 10]} /><meshStandardMaterial color="#31734b" roughness={0.9} /></mesh></group>;
+}
+
+/** 강을 막는 수면과 두 개의 횡단 교량, 숲의 수목을 그린다. */
+function OutdoorLandmarks() {
+  const bridgePositions = [-27.5, 27.5];
+  return <><mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]} receiveShadow><planeGeometry args={[16, WORLD_DEPTH]} /><meshStandardMaterial color="#1b6c92" roughness={0.38} metalness={0.16} /></mesh>{bridgePositions.map((z) => <group key={z} position={[0, 0.28, z]}><mesh castShadow receiveShadow><boxGeometry args={[22, 0.42, 9]} /><meshStandardMaterial color="#72512f" roughness={0.84} /></mesh><mesh position={[0, 1.05, -3.9]}><boxGeometry args={[22, 0.12, 0.14]} /><meshStandardMaterial color="#d8b679" metalness={0.45} /></mesh><mesh position={[0, 1.05, 3.9]}><boxGeometry args={[22, 0.12, 0.14]} /><meshStandardMaterial color="#d8b679" metalness={0.45} /></mesh></group>)}{TREE_POSITIONS.map((position, index) => <Tree key={index} position={position} />)}<Text position={[-68, 6, 62]} fontSize={3} color="#c4f1d5" anchorX="center">서쪽 숲</Text><Text position={[56, 6, -62]} fontSize={3} color="#dbeafe" anchorX="center">동쪽 산업 지대</Text></>;
 }
 
 /** 정전 중 시민에게만 벽 너머에서도 보이는 발전기 외곽선을 표시한다.
@@ -80,6 +92,7 @@ function PlayerController() {
       const device = position ? findCrosshairInteractable(position, direction, devices) : undefined;
       if (!device) { setInteractionMessage("장치를 크로스헤어로 조준한 뒤 [E]를 누르세요."); return; }
       const state = useGameStore.getState();
+      if (device.type === "VENT") { if (state.role !== "MAFIA") setInteractionMessage("환풍구는 마피아만 사용할 수 있습니다."); else { setInteractionMessage("환풍구를 통해 동쪽 출구로 이동합니다."); getActiveGameClient()?.environment("VENT"); } return; }
       if (device.type !== "GENERATOR" || state.role !== "SURVIVOR" || !state.environment?.blackout) { setInteractionMessage(`${device.name}은 지금 상호작용할 수 없습니다.`); return; }
       repairActive.current = true;
       repairStartedAt.current = performance.now();
@@ -120,6 +133,12 @@ function PlayerController() {
 
   useFrame((_state, delta) => {
     if (!player.current) return;
+    const authoritativePosition = useGameStore.getState().room?.players.find((item) => item.id === useGameStore.getState().playerId)?.position;
+    if (authoritativePosition && Math.hypot(localPosition.current.x - authoritativePosition.x, localPosition.current.z - authoritativePosition.z) > 10) {
+      localPosition.current = { ...authoritativePosition };
+      player.current.position.set(authoritativePosition.x, authoritativePosition.y, authoritativePosition.z);
+      camera.position.set(authoritativePosition.x, authoritativePosition.y + 0.65, authoritativePosition.z);
+    }
     const input = readMovementInput(pressed.current);
     const direction = movementVector(input);
     const forward = new THREE.Vector3();
@@ -208,10 +227,10 @@ function BlackoutVision() {
   const limited = blackout && role === "SURVIVOR";
 
   useEffect(() => {
-    camera.far = 100;
+    camera.far = 260;
     camera.updateProjectionMatrix();
     scene.fog = limited ? new THREE.Fog("#05070a", 2.2, SURVIVOR_BLACKOUT_VIEW_DISTANCE) : null;
-    return () => { scene.fog = null; camera.far = 100; camera.updateProjectionMatrix(); };
+    return () => { scene.fog = null; camera.far = 260; camera.updateProjectionMatrix(); };
   }, [camera, limited, scene]);
 
   return null;
@@ -228,7 +247,7 @@ function focusGameCanvas({ gl }: RootState): void {
   void canvas.requestPointerLock();
 }
 
-/** 중앙 복도와 방으로 구성한 문 없는 단층 주택 맵을 렌더링한다.
+/** 서쪽 숲과 동쪽 산업 지대를 잇는 180미터 야외 맵을 렌더링한다.
  * @returns React Three Fiber 캔버스
  */
-export function World() { return <Canvas shadows camera={{ position: [0, 2, 7], fov: 75 }} onCreated={focusGameCanvas}><color attach="background" args={["#10141d"]} /><ambientLight intensity={0.8} /><hemisphereLight intensity={1.15} color="#ffe8cf" groundColor="#5b4030" /><directionalLight castShadow intensity={1.5} position={[4, 8, 2]} shadow-mapSize={[1024, 1024]} /><BlackoutVision /><GeneratorBlackoutOutline /><Physics gravity={[0, -18, 0]}><Block position={[0, -0.15, 0]} size={[36, 0.3, 28]} color="#5d4b40" />{WORLD_COLLIDERS.map((collider) => <Block key={collider.id} position={[collider.position.x, collider.position.y, collider.position.z]} size={[collider.size.x, collider.size.y, collider.size.z]} color={collider.id.endsWith("wall") ? "#8a6a59" : "#a27e69"} />)}{devices.map((device) => <Device key={device.id} device={device} />)}<PlayerController /><RemotePlayers /></Physics><PointerLockControls /></Canvas>; }
+export function World() { return <Canvas shadows camera={{ position: [0, 2, 7], fov: 75 }} onCreated={focusGameCanvas}><color attach="background" args={["#87b7d1"]} /><ambientLight intensity={1.1} /><hemisphereLight intensity={1.35} color="#e7f3ff" groundColor="#35582d" /><directionalLight castShadow intensity={1.8} position={[40, 70, 20]} shadow-mapSize={[2048, 2048]} /><BlackoutVision /><GeneratorBlackoutOutline /><Physics gravity={[0, -18, 0]}><Block position={[0, -0.15, 0]} size={[WORLD_WIDTH, 0.3, WORLD_DEPTH]} color="#496b3c" /><OutdoorLandmarks />{WORLD_COLLIDERS.filter((collider) => !collider.id.startsWith("river-")).map((collider) => <Block key={collider.id} position={[collider.position.x, collider.position.y, collider.position.z]} size={[collider.size.x, collider.size.y, collider.size.z]} color={collider.id.includes("station") ? "#56616b" : collider.id.endsWith("wall") ? "#6e6556" : "#8a6a59"} />)}{devices.map((device) => <Device key={device.id} device={device} />)}<PlayerController /><RemotePlayers /></Physics><PointerLockControls /></Canvas>; }

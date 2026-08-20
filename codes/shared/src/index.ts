@@ -8,7 +8,7 @@ export type DeviceState = "READY" | "ACTIVE" | "OFFLINE";
 export type InteractableState = {
   id: string;
   name: string;
-  type: "GENERATOR" | "DOOR" | "LADDER";
+  type: "GENERATOR" | "DOOR" | "LADDER" | "VENT";
   position: Vector3Data;
   interactionRange: number;
   currentState: DeviceState;
@@ -32,6 +32,10 @@ export const PLAYER_WALK_SPEED = 3.2;
 export const PLAYER_RUN_SPEED = 5.4;
 /** 플레이어가 벽과 장치에 접근할 수 있는 최소 반지름이다. */
 export const PLAYER_COLLISION_RADIUS = 0.35;
+/** 확장된 야외 맵의 가로 길이다. */
+export const WORLD_WIDTH = 180;
+/** 확장된 야외 맵의 세로 길이다. */
+export const WORLD_DEPTH = 140;
 
 /** 발전기 정전 때 시민 진영에 적용할 최대 시야 거리다. */
 export const SURVIVOR_BLACKOUT_VIEW_DISTANCE = 4.5;
@@ -45,40 +49,54 @@ export type GeneratorId = "generator-a" | "generator-b";
 /** 클라이언트 물리와 서버 이동 검증이 함께 쓰는 맵 충돌 상자다. */
 export type WorldCollider = { id: string; position: Vector3Data; size: Vector3Data };
 
-/** 중앙 복도와 좌우 방으로 구성한 단층 주택의 벽 충돌 상자 목록이다. 출입구는 빈 공간으로 둔다. */
+/** 발전기 복구와 화면 장치가 함께 쓰는 실제 발전기 위치다. */
+export const GENERATOR_POSITIONS: Record<GeneratorId, Vector3Data> = { "generator-a": { x: -62, y: 0, z: -38 }, "generator-b": { x: 62, y: 0, z: 40 } };
+/** 서쪽 숲과 동쪽 산업 지대를 잇는 마피아 전용 환풍구 입구다. */
+export const VENT_ENTRANCE_POSITION: Vector3Data = { x: -76, y: 0, z: 42 };
+/** 환풍구를 통과한 마피아가 도착하는 반대편 출구다. */
+export const VENT_EXIT_POSITION: Vector3Data = { x: 76, y: 1.4, z: -42 };
+
+/** 서쪽 숲, 강의 교량, 동쪽 산업 지대를 구성하는 서버 권한형 충돌 상자다. */
 export const WORLD_COLLIDERS: readonly WorldCollider[] = [
-  { id: "north-wall", position: { x: 0, y: 1.5, z: -14 }, size: { x: 36, y: 3, z: 0.35 } },
-  { id: "south-wall", position: { x: 0, y: 1.5, z: 14 }, size: { x: 36, y: 3, z: 0.35 } },
-  { id: "west-wall", position: { x: -18, y: 1.5, z: 0 }, size: { x: 0.35, y: 3, z: 28 } },
-  { id: "east-wall", position: { x: 18, y: 1.5, z: 0 }, size: { x: 0.35, y: 3, z: 28 } },
-  { id: "left-hall-north-wall", position: { x: -5, y: 1.5, z: -8 }, size: { x: 0.35, y: 3, z: 8 } },
-  { id: "left-hall-south-wall", position: { x: -5, y: 1.5, z: 6 }, size: { x: 0.35, y: 3, z: 10 } },
-  { id: "right-hall-north-wall", position: { x: 5, y: 1.5, z: -8 }, size: { x: 0.35, y: 3, z: 8 } },
-  { id: "right-hall-south-wall", position: { x: 5, y: 1.5, z: 6 }, size: { x: 0.35, y: 3, z: 10 } },
-  { id: "west-upper-room-wall-a", position: { x: -14, y: 1.5, z: -3 }, size: { x: 6, y: 3, z: 0.35 } },
-  { id: "west-upper-room-wall-b", position: { x: -7.5, y: 1.5, z: -3 }, size: { x: 3, y: 3, z: 0.35 } },
-  { id: "east-upper-room-wall-a", position: { x: 14, y: 1.5, z: -3 }, size: { x: 6, y: 3, z: 0.35 } },
-  { id: "east-upper-room-wall-b", position: { x: 7.5, y: 1.5, z: -3 }, size: { x: 3, y: 3, z: 0.35 } },
-  { id: "west-lower-room-wall-a", position: { x: -14, y: 1.5, z: 4 }, size: { x: 6, y: 3, z: 0.35 } },
-  { id: "west-lower-room-wall-b", position: { x: -7.5, y: 1.5, z: 4 }, size: { x: 3, y: 3, z: 0.35 } },
-  { id: "east-lower-room-wall-a", position: { x: 14, y: 1.5, z: 4 }, size: { x: 6, y: 3, z: 0.35 } },
-  { id: "east-lower-room-wall-b", position: { x: 7.5, y: 1.5, z: 4 }, size: { x: 3, y: 3, z: 0.35 } },
+  { id: "north-wall", position: { x: 0, y: 2.5, z: -70 }, size: { x: 180, y: 5, z: 0.5 } },
+  { id: "south-wall", position: { x: 0, y: 2.5, z: 70 }, size: { x: 180, y: 5, z: 0.5 } },
+  { id: "west-wall", position: { x: -90, y: 2.5, z: 0 }, size: { x: 0.5, y: 5, z: 140 } },
+  { id: "east-wall", position: { x: 90, y: 2.5, z: 0 }, size: { x: 0.5, y: 5, z: 140 } },
+  { id: "river-north", position: { x: 0, y: 1.5, z: -52.5 }, size: { x: 16, y: 3, z: 35 } },
+  { id: "river-center", position: { x: 0, y: 1.5, z: 0 }, size: { x: 16, y: 3, z: 40 } },
+  { id: "river-south", position: { x: 0, y: 1.5, z: 52.5 }, size: { x: 16, y: 3, z: 35 } },
+  { id: "west-lodge-north", position: { x: -48, y: 2, z: -48 }, size: { x: 24, y: 4, z: 0.5 } },
+  { id: "west-lodge-south", position: { x: -48, y: 2, z: -24 }, size: { x: 24, y: 4, z: 0.5 } },
+  { id: "west-lodge-west", position: { x: -60, y: 2, z: -36 }, size: { x: 0.5, y: 4, z: 24 } },
+  { id: "west-lodge-east", position: { x: -36, y: 2, z: -42 }, size: { x: 0.5, y: 4, z: 12 } },
+  { id: "east-station-north", position: { x: 50, y: 2, z: 22 }, size: { x: 28, y: 4, z: 0.5 } },
+  { id: "east-station-south", position: { x: 50, y: 2, z: 50 }, size: { x: 28, y: 4, z: 0.5 } },
+  { id: "east-station-west", position: { x: 36, y: 2, z: 36 }, size: { x: 0.5, y: 4, z: 28 } },
+  { id: "east-station-east", position: { x: 64, y: 2, z: 42 }, size: { x: 0.5, y: 4, z: 16 } },
 ];
 
 /** 게임 시작 때 서버가 무작위로 배정하는 서로 겹치지 않는 참가자 스폰 위치다. */
 export const PLAYER_SPAWN_POSITIONS: readonly Vector3Data[] = [
-  { x: -2, y: 1.4, z: -10 }, { x: 0, y: 1.4, z: -10 }, { x: 2, y: 1.4, z: -10 }, { x: -2, y: 1.4, z: -5 }, { x: 0, y: 1.4, z: -5 },
-  { x: 2, y: 1.4, z: -5 }, { x: -2, y: 1.4, z: 0 }, { x: 0, y: 1.4, z: 0 }, { x: 2, y: 1.4, z: 0 }, { x: -2, y: 1.4, z: 5 },
-  { x: 0, y: 1.4, z: 5 }, { x: 2, y: 1.4, z: 5 }, { x: -2, y: 1.4, z: 10 }, { x: 0, y: 1.4, z: 10 }, { x: 2, y: 1.4, z: 10 },
-  { x: -12, y: 1.4, z: -10 }, { x: 12, y: 1.4, z: -10 }, { x: -12, y: 1.4, z: -6 }, { x: 12, y: 1.4, z: -6 }, { x: -12, y: 1.4, z: 0 },
-  { x: 12, y: 1.4, z: 0 }, { x: -12, y: 1.4, z: 6 }, { x: 12, y: 1.4, z: 6 }, { x: -12, y: 1.4, z: 10 }, { x: 12, y: 1.4, z: 10 },
+  { x: -76, y: 1.4, z: -58 }, { x: -62, y: 1.4, z: -58 }, { x: -48, y: 1.4, z: -58 }, { x: -28, y: 1.4, z: -58 }, { x: -18, y: 1.4, z: -28 },
+  { x: -72, y: 1.4, z: -12 }, { x: -52, y: 1.4, z: -12 }, { x: -30, y: 1.4, z: -8 }, { x: -72, y: 1.4, z: 12 }, { x: -48, y: 1.4, z: 12 },
+  { x: -26, y: 1.4, z: 26 }, { x: -76, y: 1.4, z: 54 }, { x: -56, y: 1.4, z: 54 }, { x: -34, y: 1.4, z: 54 }, { x: -18, y: 1.4, z: 30 },
+  { x: 18, y: 1.4, z: -30 }, { x: 34, y: 1.4, z: -54 }, { x: 56, y: 1.4, z: -54 }, { x: 76, y: 1.4, z: -54 }, { x: 26, y: 1.4, z: -8 },
+  { x: 48, y: 1.4, z: -8 }, { x: 72, y: 1.4, z: -8 }, { x: 20, y: 1.4, z: 30 }, { x: 72, y: 1.4, z: 58 }, { x: 30, y: 1.4, z: 58 },
+];
+
+/** 서쪽 숲에 배치할 나무 중심 위치다. 줄기에는 서버와 클라이언트가 같은 충돌을 적용한다. */
+export const TREE_POSITIONS: readonly Vector3Data[] = [
+  { x: -78, y: 0, z: -42 }, { x: -72, y: 0, z: -28 }, { x: -66, y: 0, z: 24 }, { x: -76, y: 0, z: 34 }, { x: -62, y: 0, z: 44 },
+  { x: -52, y: 0, z: 32 }, { x: -42, y: 0, z: 42 }, { x: -34, y: 0, z: 18 }, { x: -30, y: 0, z: -18 }, { x: -76, y: 0, z: 4 },
+  { x: -54, y: 0, z: 2 }, { x: -38, y: 0, z: 4 }, { x: 30, y: 0, z: -26 }, { x: 46, y: 0, z: -18 }, { x: 72, y: 0, z: 12 },
 ];
 
 /** 장치 외형과 동일하게 서버 이동도 막아야 하는 충돌 상자다. */
 export const INTERACTION_COLLIDERS: readonly WorldCollider[] = [
-  { id: "generator-a", position: { x: -12, y: 0.65, z: -8 }, size: { x: 1.1, y: 1.3, z: 0.8 } },
-  { id: "generator-b", position: { x: 12, y: 0.65, z: 8 }, size: { x: 1.1, y: 1.3, z: 0.8 } },
-  { id: "maintenance-ladder", position: { x: 12, y: 1.4, z: -8 }, size: { x: 0.45, y: 2.8, z: 0.2 } },
+  { id: "generator-a", position: { x: GENERATOR_POSITIONS["generator-a"].x, y: 0.65, z: GENERATOR_POSITIONS["generator-a"].z }, size: { x: 1.1, y: 1.3, z: 0.8 } },
+  { id: "generator-b", position: { x: GENERATOR_POSITIONS["generator-b"].x, y: 0.65, z: GENERATOR_POSITIONS["generator-b"].z }, size: { x: 1.1, y: 1.3, z: 0.8 } },
+  { id: "maintenance-ladder", position: { x: 72, y: 1.4, z: -36 }, size: { x: 0.45, y: 2.8, z: 0.2 } },
+  ...TREE_POSITIONS.map((position, index) => ({ id: `tree-${index + 1}`, position: { x: position.x, y: 1.8, z: position.z }, size: { x: 1.1, y: 3.6, z: 1.1 } })),
 ];
 
 /** 네트워크로 공유하는 참가자 상태다. */

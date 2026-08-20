@@ -77,6 +77,13 @@ export class GameRoom {
     this.mafiaCount = count;
   }
 
+  /** 서버가 검증한 환경 이동 결과를 지정한 참가자에게 적용한다. */
+  teleport(playerId: string, destination: Vector3Data): void {
+    const player = this.getPlayer(playerId);
+    if (this.gameState !== "PLAYING" || player.lifeState !== "ALIVE") throw new RoomError("INVALID_MESSAGE", "이동할 수 없는 상태입니다.");
+    player.position = { ...destination };
+  }
+
   /** 지정 거리 안의 생존자를 처치하고 시체를 남긴다. */
   kill(playerId: string, targetId: string, now: number): void {
     const killer = this.getPlayer(playerId); const target = this.getPlayer(targetId);
