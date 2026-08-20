@@ -193,12 +193,13 @@ describe("GameRoom", () => {
   it("사망한 참가자도 투표 대상에 포함하고 최다 득표자는 결과 뒤 처형한다", () => {
     const room = new GameRoom("test");
     for (const id of ["host", "survivor-a", "survivor-b"]) { room.join(id, id, undefined, 0); room.setReady(id, true); }
-    room.setMafiaCount("host", 1); room.startGame("host", 0); room.teleport("host", EMERGENCY_BELL_POSITION); room.callMeeting("host", 1_000);
+    room.setMafiaCount("host", 1); room.startGame("host", 0); room.teleport("host", EMERGENCY_BELL_POSITION); room.teleport("survivor-b", { x: 14, y: 1.4, z: 9 }); room.callMeeting("host", 1_000);
     room.vote("host", "survivor-a", 1_100); room.vote("survivor-a", "survivor-a", 1_200); room.vote("survivor-b", "host", 1_300);
     room.advance(91_000);
     expect(room.snapshot().meetingResult).toMatchObject({ type: "EXPEL", expelledId: "survivor-a" });
     room.advance(94_000);
     expect(room.snapshot().players.find((player) => player.id === "survivor-a")?.lifeState).toBe("GHOST");
+    expect(room.snapshot()).toMatchObject({ gameState: "PLAYING", players: expect.arrayContaining([expect.objectContaining({ id: "host", position: EMERGENCY_BELL_POSITION }), expect.objectContaining({ id: "survivor-b", position: { x: 14, y: 1.4, z: 9 } })]) });
   });
 
   it("공통 임무 완료는 서버가 시민 승리로 확정한다", () => {
