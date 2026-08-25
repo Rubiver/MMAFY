@@ -20,6 +20,7 @@ export class GameRoom {
   private meetingPositions = new Map<string, Vector3Data>();
   private result?: { winner: RoleTeam; expelledId?: string };
   private pendingMafiaWinAt?: number;
+  private shouldCheckMafiaWinAfterMeeting = false;
 
   /**
    * @param roomId 사람이 확인할 수 있는 방 식별자
@@ -203,11 +204,11 @@ export class GameRoom {
 
   /** 신고자와 종료 시각을 기록하고 90초 통합 회의를 시작한다. */
   /** 회의 전 위치를 복사해 결과 연출 뒤 같은 지점에서 플레이를 재개한다. */
-  private beginMeeting(reporterId: string, bodyId: string | undefined, now: number): void { this.pendingMafiaWinAt = undefined; this.meetingPositions = new Map([...this.players.values()].map((player) => [player.id, { ...player.position }])); this.meeting = { reporterId, bodyId, votes: {}, endsAt: now + MEETING_DURATION_MS, messages: [] }; this.meetingResult = undefined; this.gameState = "MEETING"; }
+  private beginMeeting(reporterId: string, bodyId: string | undefined, now: number): void { this.shouldCheckMafiaWinAfterMeeting = this.pendingMafiaWinAt !== undefined; this.pendingMafiaWinAt = undefined; this.meetingPositions = new Map([...this.players.values()].map((player) => [player.id, { ...player.position }])); this.meeting = { reporterId, bodyId, votes: {}, endsAt: now + MEETING_DURATION_MS, messages: [] }; this.meetingResult = undefined; this.gameState = "MEETING"; }
   /** 표를 집계해 건너뛰기 또는 처형 결과를 3초간 전파한다. */
   private finishVote(now: number, forcedSkip = false): void { if (!this.meeting) return; const counts = new Map<string, number>(); for (const target of Object.values(this.meeting.votes)) counts.set(target, (counts.get(target) ?? 0) + 1); const top = [...counts.entries()].sort((a, b) => b[1] - a[1]); const expelled = !forcedSkip && top.length && (top.length === 1 || top[0][1] > top[1][1]) && top[0][0] !== "SKIP" ? top[0][0] : undefined; this.meeting = undefined; this.meetingResult = { type: expelled ? "EXPEL" : "SKIP", expelledId: expelled, endsAt: now + 3_000 }; this.gameState = "VOTING"; }
   /** 결과 연출 시간이 끝나면 처형을 확정하고 회의 전 위치에서 게임을 재개한다. */
-  private completeMeetingResult(): void { const expelled = this.meetingResult?.expelledId; if (expelled) { const player = this.getPlayer(expelled); player.lifeState = "GHOST"; player.bodyId = undefined; } for (const player of this.players.values()) { const position = this.meetingPositions.get(player.id); if (position) player.position = { ...position }; } this.meetingPositions.clear(); this.meetingResult = undefined; this.gameState = "PLAYING"; this.checkMafiaWin(); }
+  private completeMeetingResult(): void { const expelled = this.meetingResult?.expelledId; if (expelled) { const player = this.getPlayer(expelled); player.lifeState = "GHOST"; player.bodyId = undefined; } for (const player of this.players.values()) { const position = this.meetingPositions.get(player.id); if (position) player.position = { ...position }; } const shouldCheckMafiaWin = this.shouldCheckMafiaWinAfterMeeting || expelled !== undefined; this.meetingPositions.clear(); this.meetingResult = undefined; this.shouldCheckMafiaWinAfterMeeting = false; this.gameState = "PLAYING"; if (shouldCheckMafiaWin) this.checkMafiaWin(); }
   /** 살아 있는 마피아가 시민 수와 같거나 많아지면 마피아 승리를 확정한다. */
   private checkMafiaWin(): void { if (this.hasMafiaAdvantage()) { this.result = { winner: "MAFIA" }; this.gameState = "GAME_OVER"; } }
   /** 살아 있는 마피아 수가 시민 수 이상인지 계산한다. */

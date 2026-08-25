@@ -224,6 +224,17 @@ describe("GameRoom", () => {
     expect(room.snapshot()).toMatchObject({ gameState: "VOTING", meetingResult: { type: "SKIP", endsAt: 4_300 } });
   });
 
+  it("인원 변화가 없는 긴급 회의를 건너뛰면 낮은 인원 방에서도 게임으로 돌아간다", () => {
+    const room = new GameRoom("test");
+    room.join("host", "마피아", undefined, 0); room.join("survivor", "시민", undefined, 0);
+    room.setReady("host", true); room.setReady("survivor", true); room.setMafiaCount("host", 1); room.startGame("host", 0);
+    room.teleport("host", EMERGENCY_BELL_POSITION); room.callMeeting("host", 1_000);
+    room.vote("host", "SKIP", 1_100); room.vote("survivor", "SKIP", 1_200);
+    expect(room.snapshot()).toMatchObject({ gameState: "VOTING", meetingResult: { type: "SKIP" } });
+    expect(room.advance(4_200)).toBe(true);
+    expect(room.snapshot()).toMatchObject({ gameState: "PLAYING", meetingResult: undefined, result: undefined });
+  });
+
   it("사망한 참가자도 투표 대상에 포함하고 최다 득표자는 결과 뒤 처형한다", () => {
     const room = new GameRoom("test");
     for (const id of ["host", "survivor-a", "survivor-b"]) { room.join(id, id, undefined, 0); room.setReady(id, true); }
