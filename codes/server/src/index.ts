@@ -36,6 +36,7 @@ websocketServer.on("connection", (socket) => {
         const session = requireSession(socket); const entry = getRoom(session.roomCode); const room = entry.room; const now = Date.now();
         if (message.type === "SET_READY") { room.setReady(session.playerId, message.ready); broadcastState(session.roomCode); }
         else if (message.type === "DELETE_ROOM") { if (room.snapshot().hostId !== session.playerId) throw new RoomError("NOT_HOST", "방장만 방을 삭제할 수 있습니다."); closeRoom(session.roomCode, "방장이 방을 삭제했습니다."); }
+        else if (message.type === "RESET_GAME") { room.resetGame(session.playerId); entry.environment.reset(); broadcastState(session.roomCode); broadcastEnvironment(session.roomCode); }
         else if (message.type === "START_GAME") { entry.environment.reset(); room.startGame(session.playerId, now); broadcastState(session.roomCode); broadcastEnvironment(session.roomCode); for (const [peer, item] of sockets) if (item.roomCode === session.roomCode) { send(peer, { type: "ROLE", ...room.roleInfo(item.playerId) }); sendKillCooldown(peer, room, item.playerId, now); } }
         else if (message.type === "SET_MAFIA_COUNT") { room.setMafiaCount(session.playerId, message.count); broadcastState(session.roomCode); }
         else if (message.type === "KILL") { room.kill(session.playerId, message.targetId, now); sendKillCooldown(socket, room, session.playerId, now); broadcastState(session.roomCode); }
@@ -80,7 +81,7 @@ function parseMessage(raw: string): ClientMessage {
   if (value.type === "SET_MAFIA_COUNT" && Number.isInteger(value.count)) return value as ClientMessage;
   if (value.type === "KILL" && typeof value.targetId === "string") return value as ClientMessage;
   if (value.type === "REPORT" && typeof value.bodyId === "string") return value as ClientMessage;
-  if (value.type === "CALL_MEETING" || value.type === "START_VOTING" || value.type === "START_GAME" || value.type === "DELETE_ROOM" || value.type === "PING") return value;
+  if (value.type === "CALL_MEETING" || value.type === "START_VOTING" || value.type === "START_GAME" || value.type === "RESET_GAME" || value.type === "DELETE_ROOM" || value.type === "PING") return value;
   if (value.type === "VOTE" && typeof value.targetId === "string") return value as ClientMessage;
   if (value.type === "CHAT" && typeof value.text === "string") return value as ClientMessage;
   if (value.type === "ENVIRONMENT" && ["SABOTAGE", "REPAIR_START", "REPAIR_COMPLETE", "REPAIR_CANCEL", "VENT", "TASK", "SECURITY_CARD_TASK", "DOOR_TOGGLE", "DOOR_LOCK", "CCTV_OPEN", "CCTV_CLOSE", "COMM_SABOTAGE", "COMM_REPAIR", "BARRICADE_DEPLOY", "BARRICADE_DISMANTLE", "CARGO_PICKUP", "CARGO_DELIVER"].includes(String(value.action)) && (value.deviceId === undefined || value.deviceId === "generator-a" || value.deviceId === "generator-b") && (value.puzzle === undefined || Array.isArray(value.puzzle) && value.puzzle.every((item) => typeof item === "string") && value.puzzle.length <= 8)) return value as ClientMessage;

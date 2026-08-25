@@ -36,6 +36,7 @@ type GameStore = {
   setTaskPanelOpen: (open: boolean) => void;
   setSecurityCardPanelOpen: (open: boolean) => void;
   setCctvOpen: (open: boolean) => void;
+  resetPlaySession: () => void;
 };
 
 /** 화면 전용 플레이어 위치와 상호작용 안내 상태를 보관한다. */
@@ -65,6 +66,23 @@ export const useGameStore = create<GameStore>((set) => ({
   setTaskPanelOpen: (taskPanelOpen) => set({ taskPanelOpen }),
   setSecurityCardPanelOpen: (securityCardPanelOpen) => set({ securityCardPanelOpen }),
   setCctvOpen: (cctvOpen) => set({ cctvOpen }),
+  resetPlaySession: () => set({
+    playerPosition: { x: 0, y: 0, z: 4 },
+    nearbyDevice: undefined,
+    interactionMessage: undefined,
+    role: undefined,
+    mafiaIds: [],
+    environment: undefined,
+    killCooldownUntil: undefined,
+    aimedKillTargetId: undefined,
+    killTargetIds: [],
+    nearbyBodyId: undefined,
+    spectatorTargetId: undefined,
+    repairProgress: 0,
+    taskPanelOpen: false,
+    securityCardPanelOpen: false,
+    cctvOpen: false,
+  }),
 }));
 
 declare global {

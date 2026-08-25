@@ -4,6 +4,7 @@ import { Lobby } from "./ui/Lobby";
 import { useGameStore } from "./store/gameStore";
 import { GameActions } from "./ui/GameActions";
 import { Meeting } from "./ui/Meeting";
+import { GameOver } from "./ui/GameOver";
 
 /** 3D 월드와 화면 안내를 조합하는 최상위 화면이다.
  * @returns 기본 게임 화면
@@ -11,6 +12,7 @@ import { Meeting } from "./ui/Meeting";
 export function App() {
   const gameState = useGameStore((state) => state.room?.gameState);
   const meetingOpen = gameState === "MEETING" || gameState === "VOTING";
+  if (gameState === "GAME_OVER") return <GameOver />;
   if (gameState !== "PLAYING" && !meetingOpen) return <Lobby />;
   return (
     <main className="h-screen w-screen overflow-hidden bg-slate-950">

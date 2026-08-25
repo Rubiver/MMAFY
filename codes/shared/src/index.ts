@@ -167,6 +167,7 @@ export type ClientMessage =
   | { type: "JOIN"; displayName: string; roomCode: string; resumeToken?: string }
   | { type: "SET_READY"; ready: boolean }
   | { type: "DELETE_ROOM" }
+  | { type: "RESET_GAME" }
   | { type: "START_GAME" }
   | { type: "SET_MAFIA_COUNT"; count: number }
   | { type: "KILL"; targetId: string }

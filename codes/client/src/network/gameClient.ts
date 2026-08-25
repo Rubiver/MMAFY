@@ -33,6 +33,8 @@ export class GameClient {
   hasSavedSession(): boolean { return Boolean(this.roomCode && localStorage.getItem(DISPLAY_NAME_KEY)); }
   /** 준비 상태 변경을 서버에 요청한다. */
   setReady(ready: boolean): void { this.send({ type: "SET_READY", ready }); }
+  /** 방장 권한으로 종료된 판을 초기화하고 같은 방의 대기실로 돌아간다. */
+  resetGame(): void { this.send({ type: "RESET_GAME" }); }
   /** 방장 권한으로 현재 방을 닫고 저장된 재접속 정보를 지운다. */
   deleteRoom(): void { this.send({ type: "DELETE_ROOM" }); }
   startGame(): void { this.send({ type: "START_GAME" }); }
@@ -61,7 +63,7 @@ export class GameClient {
   /** 서버 메시지별로 방·역할·환경 상태를 갱신한다. */
   private handleMessage(message: ServerMessage): void {
     if (message.type === "WELCOME") { this.playerId = message.playerId; this.resumeToken = message.resumeToken; this.roomCode = message.snapshot.roomId; localStorage.setItem(RESUME_TOKEN_KEY, message.resumeToken); localStorage.setItem(ROOM_CODE_KEY, message.snapshot.roomId); this.onState(message.snapshot, this.playerId); }
-    else if (message.type === "ROOM_STATE") this.onState(message.snapshot, this.playerId);
+    else if (message.type === "ROOM_STATE") { if (message.snapshot.gameState === "LOBBY") useGameStore.getState().resetPlaySession(); this.onState(message.snapshot, this.playerId); }
     else if (message.type === "MOVE_ACK") { /* 로컬 이동은 공용 충돌 규칙으로 예측하고, 서버는 이후 모든 게임 판정을 권한적으로 검증한다. */ }
     else if (message.type === "KILL_COOLDOWN") useGameStore.getState().setKillCooldown(message.remainingMs);
     else if (message.type === "ROLE") useGameStore.getState().setRole(message.team, message.mafiaIds);

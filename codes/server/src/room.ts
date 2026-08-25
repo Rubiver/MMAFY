@@ -86,6 +86,34 @@ export class GameRoom {
     this.gameState = "PLAYING";
   }
 
+  /** 종료된 한 판의 역할과 생명 상태를 비우고 같은 참가자들을 대기실로 돌려보낸다.
+   * @throws 방장이 아니거나 아직 게임이 끝나지 않은 경우
+   */
+  resetGame(playerId: string): void {
+    if (playerId !== this.hostId) throw new RoomError("NOT_HOST", "방장만 다음 게임을 준비할 수 있습니다.");
+    if (this.gameState !== "GAME_OVER") throw new RoomError("INVALID_MESSAGE", "게임이 끝난 뒤에만 대기실로 돌아갈 수 있습니다.");
+    this.gameState = "LOBBY";
+    this.mafiaCount = undefined;
+    this.roles.clear();
+    this.meeting = undefined;
+    this.meetingResult = undefined;
+    this.meetingPositions.clear();
+    this.result = undefined;
+    this.pendingMafiaWinAt = undefined;
+    this.shouldCheckMafiaWinAfterMeeting = false;
+    for (const player of this.players.values()) {
+      player.position = { ...SPAWN_POSITION };
+      player.rotation = 0;
+      player.ready = false;
+      player.lifeState = "ALIVE";
+      player.bodyId = undefined;
+      player.killCooldownEndsAt = 0;
+      player.lastMoveAt = 0;
+      player.lastMoveSequence = -1;
+      player.lastChatAt = 0;
+    }
+  }
+
   /** 방장이 마피아 수를 직접 정한다. */
   setMafiaCount(playerId: string, count: number): void {
     if (playerId !== this.hostId) throw new RoomError("NOT_HOST", "방장만 마피아 수를 정할 수 있습니다.");
