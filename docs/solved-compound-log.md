@@ -10,17 +10,6 @@ category: solved
 - 해결 일자: 2026-08-19 13:58:07
 
 ---
-date: 2026-08-19 13:46:42
-resolved-date: 2026-08-25 17:14:14
-tags: [phase-5, bundle-size, performance]
-category: solved
----
-
-- 원래 문제: 초기 JavaScript 묶음이 압축 전 약 3.3MB라 첫 화면 진입이 느려질 수 있었다.
-- 해결 방법: 3D 월드를 게임 시작 시 동적으로 불러오도록 분리해 초기 묶음을 약 3.5MB에서 228KB로 줄였다. 3D 월드 묶음 자체는 약 3.28MB라 후속 최적화 대상으로 유지한다.
-- 해결 일자: 2026-08-25 17:14:14
-
----
 date: 2026-08-25 17:14:14
 resolved-date: 2026-08-25 17:14:14
 tags: [phase-5, reconnect, zustand, websocket]
