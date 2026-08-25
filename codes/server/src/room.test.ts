@@ -63,6 +63,16 @@ describe("GameRoom", () => {
     expect(room.snapshot().players.every((player) => player.position.y === 1.4)).toBe(true);
   });
 
+  it("바리케이드는 사각 충돌 범위의 모서리에 있는 참가자와도 겹쳐 설치할 수 없다", () => {
+    const room = new GameRoom("test");
+    room.join("host", "방장", undefined, 0); room.join("survivor", "시민", undefined, 0);
+    room.setReady("host", true); room.setReady("survivor", true); room.setMafiaCount("host", 1); room.startGame("host", 0);
+    room.teleport("host", { x: 21.3, y: 1.4, z: 21.3 });
+    expect(room.canPlaceBarricade({ x: 20, y: 0.8, z: 20 }, [], "survivor")).toBe(false);
+    room.teleport("host", { x: 22, y: 1.4, z: 22 });
+    expect(room.canPlaceBarricade({ x: 20, y: 0.8, z: 20 }, [], "survivor")).toBe(true);
+  });
+
   it("서버는 확장 맵 바깥 경계 벽을 통과하는 이동을 막는다", () => {
     const room = new GameRoom("test");
     room.join("host", "방장", undefined, 0);
@@ -135,15 +145,17 @@ describe("GameRoom", () => {
     expect(room.snapshot().meeting).toMatchObject({ reporterId: "host", bodyId });
   });
 
-  it("살아 있는 마피아 수가 시민 수와 같아지면 마피아가 승리한다", () => {
+  it("신고 회의가 끝난 뒤 살아 있는 마피아 수가 시민 수와 같으면 마피아가 승리한다", () => {
     const room = new GameRoom("test");
     room.join("host", "마피아", undefined, 0); room.join("survivor", "시민", undefined, 0);
     room.setReady("host", true); room.setReady("survivor", true); room.setMafiaCount("host", 1); room.startGame("host", 0);
     room.teleport("host", { x: 0, y: 1.4, z: 0 }); room.teleport("survivor", { x: 1, y: 1.4, z: 0 }); room.kill("host", "survivor", 20_000);
+    const bodyId = room.snapshot().players.find((player) => player.id === "survivor")?.bodyId;
+    room.report("host", bodyId!, 20_001); room.advance(110_001); room.advance(113_001);
     expect(room.snapshot()).toMatchObject({ gameState: "GAME_OVER", result: { winner: "MAFIA" } });
   });
 
-  it("마피아가 마지막 시민을 처치해 동수가 되면 즉시 승리한다", () => {
+  it("마피아가 마지막 시민을 처치해도 시체 신고 기회를 유지한다", () => {
     const room = new GameRoom("test");
     room.join("host", "마피아", undefined, 0);
     room.join("survivor", "시민", undefined, 0);
@@ -151,7 +163,21 @@ describe("GameRoom", () => {
     room.startGame("host", 0);
     room.teleport("host", { x: 0, y: 1.4, z: 0 }); room.teleport("survivor", { x: 1, y: 1.4, z: 0 });
     room.kill("host", "survivor", 20_000);
-    expect(room.snapshot()).toMatchObject({ gameState: "GAME_OVER", result: { winner: "MAFIA" }, players: expect.arrayContaining([expect.objectContaining({ id: "survivor", lifeState: "DEAD", bodyId: expect.any(String) })]) });
+    const bodyId = room.snapshot().players.find((player) => player.id === "survivor")?.bodyId;
+    expect(room.snapshot()).toMatchObject({ gameState: "PLAYING", players: expect.arrayContaining([expect.objectContaining({ id: "survivor", lifeState: "DEAD", bodyId: expect.any(String) })]) });
+    room.report("host", bodyId!, 20_001);
+    expect(room.snapshot().gameState).toBe("MEETING");
+  });
+
+  it("마지막 처치가 신고되지 않으면 10초 뒤 마피아 승리를 확정한다", () => {
+    const room = new GameRoom("test");
+    room.join("host", "마피아", undefined, 0); room.join("survivor", "시민", undefined, 0);
+    room.setReady("host", true); room.setReady("survivor", true); room.setMafiaCount("host", 1); room.startGame("host", 0);
+    room.teleport("host", { x: 0, y: 1.4, z: 0 }); room.teleport("survivor", { x: 1, y: 1.4, z: 0 }); room.kill("host", "survivor", 20_000);
+    expect(room.advance(29_999)).toBe(false);
+    expect(room.snapshot().gameState).toBe("PLAYING");
+    expect(room.advance(30_000)).toBe(true);
+    expect(room.snapshot()).toMatchObject({ gameState: "GAME_OVER", result: { winner: "MAFIA" } });
   });
 
   it("사망한 시민의 이동 요청은 서버가 무시한다", () => {
@@ -207,7 +233,7 @@ describe("GameRoom", () => {
     expect(room.snapshot().meetingResult).toMatchObject({ type: "EXPEL", expelledId: "survivor-a" });
     room.advance(94_000);
     expect(room.snapshot().players.find((player) => player.id === "survivor-a")?.lifeState).toBe("GHOST");
-    expect(room.snapshot()).toMatchObject({ gameState: "PLAYING", players: expect.arrayContaining([expect.objectContaining({ id: "host", position: EMERGENCY_BELL_POSITION }), expect.objectContaining({ id: "survivor-b", position: { x: 14, y: 1.4, z: 9 } })]) });
+    expect(room.snapshot()).toMatchObject({ gameState: "GAME_OVER", result: { winner: "MAFIA" }, players: expect.arrayContaining([expect.objectContaining({ id: "host", position: EMERGENCY_BELL_POSITION }), expect.objectContaining({ id: "survivor-b", position: { x: 14, y: 1.4, z: 9 } })]) });
   });
 
   it("공통 임무 완료는 서버가 시민 승리로 확정한다", () => {
@@ -227,6 +253,39 @@ describe("GameRoom", () => {
     expect(room.snapshot().players[0].displayName).toBe("복귀");
   });
 
+  it("기존 연결 종료보다 새 연결이 먼저 와도 토큰 세션을 교체한다", () => {
+    const room = new GameRoom("test");
+    const joined = room.join("before", "기존", undefined, 0);
+    room.join("after", "새 연결", joined.resumeToken, 100);
+    expect(room.snapshot().players).toEqual([expect.objectContaining({ id: "after", displayName: "새 연결", connected: true })]);
+  });
+
+  it("방장 연결이 끊기면 접속 중인 다음 참가자에게 방장을 넘긴다", () => {
+    const room = new GameRoom("test");
+    room.join("host", "방장", undefined, 0);
+    room.join("next", "다음", undefined, 0);
+    expect(room.disconnect("host", 100)).toBe(true);
+    expect(room.snapshot().hostId).toBe("next");
+  });
+
+  it("방장이 같은 토큰으로 연결을 교체하면 새 식별자에 방장 권한을 유지한다", () => {
+    const room = new GameRoom("test");
+    const joined = room.join("before", "방장", undefined, 0);
+    room.join("after", "복귀 방장", joined.resumeToken, 100);
+    expect(room.snapshot()).toMatchObject({ hostId: "after", players: [expect.objectContaining({ id: "after" })] });
+  });
+
+  it("재접속하면 새 클라이언트의 이동 순번을 0부터 다시 받는다", () => {
+    const room = new GameRoom("test");
+    const joined = room.join("before", "기존", undefined, 0);
+    room.join("other", "상대", undefined, 0);
+    room.setReady("before", true); room.setReady("other", true); room.setMafiaCount("before", 1); room.startGame("before", 0);
+    expect(room.move("before", { x: 1, z: 0 }, 0, false, 100, 500)).toBeDefined();
+    room.disconnect("before", 200);
+    room.join("after", "복귀", joined.resumeToken, 300);
+    expect(room.move("after", { x: 1, z: 0 }, 0, false, 400, 0)).toBeDefined();
+  });
+
   it("빈 표시 이름에는 친근한 무작위 별명을 부여한다", () => {
     const room = new GameRoom("test");
     const random = vi.spyOn(Math, "random").mockReturnValue(0);
@@ -235,11 +294,11 @@ describe("GameRoom", () => {
     expect(room.snapshot().players[0].displayName).toBe("배고픈 비버");
   });
 
-  it("방장이 연결을 끊으면 서버가 방 삭제 여부를 알 수 있게 한다", () => {
+  it("방장이 연결을 끊으면 서버가 연결 해제를 알리고 다음 참가자에게 권한을 넘긴다", () => {
     const room = new GameRoom("test");
     room.join("host", "방장", undefined, 0);
     room.join("other", "상대", undefined, 0);
     expect(room.disconnect("host", 100)).toBe(true);
-    expect(room.snapshot()).toMatchObject({ hostId: "host", players: [{ id: "host", connected: false }, { id: "other", connected: true }] });
+    expect(room.snapshot()).toMatchObject({ hostId: "other", players: [{ id: "host", connected: false }, { id: "other", connected: true }] });
   });
 });

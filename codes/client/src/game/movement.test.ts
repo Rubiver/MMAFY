@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { resolveLocalMovement } from "./localMovement";
+import type { BarricadeState } from "@mafia/shared";
+import { isWalkablePosition, resolveLocalMovement } from "./localMovement";
 import { facingYaw, movementSpeed, movementVector } from "./movement";
 
 describe("이동 계산", () => {
@@ -22,5 +23,10 @@ describe("이동 계산", () => {
   it("교량 갑판 밖의 강 충돌 구간을 통과하지 못한다", () => {
     const position = resolveLocalMovement({ x: -8.4, y: 1.4, z: -33 }, { x: 0.5, z: 0 });
     expect(position.x).toBeLessThanOrEqual(-8.35);
+  });
+
+  it("서버가 새 바리케이드를 전파했을 때 겹친 이전 좌표를 감지한다", () => {
+    const barricades: BarricadeState[] = [{ id: "barricade", ownerId: "survivor", position: { x: 20, y: 0.8, z: 20 }, expiresAt: 30_000 }];
+    expect(isWalkablePosition({ x: 21.3, y: 1.4, z: 21.3 }, false, barricades)).toBe(false);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CCTV_CONSOLE_POSITION, CIRCUIT_PANEL_POSITION, GENERATOR_POSITIONS, SECURITY_SHUTTER_POSITION, VENT_ENTRANCE_POSITION, VENT_EXIT_POSITION } from "@mafia/shared";
+import { CARGO_DELIVERY_POSITION, CARGO_PICKUP_POSITION, CCTV_CONSOLE_POSITION, CIRCUIT_PANEL_POSITION, GENERATOR_POSITIONS, SECURITY_CARD_POSITION, SECURITY_SHUTTER_POSITION, VENT_ENTRANCE_POSITION, VENT_EXIT_POSITION } from "@mafia/shared";
 import { EnvironmentSystem } from "./environment.js";
 
 const generator = { ...GENERATOR_POSITIONS["generator-a"], y: 1.4 };
@@ -24,7 +24,7 @@ describe("EnvironmentSystem", () => {
     environment.sabotage("mafia", "MAFIA", "generator-b", 1_000);
     environment.completeCircuitTask("survivor", "SURVIVOR", CIRCUIT_PANEL_POSITION, ["AMBER", "CYAN", "VIOLET"]);
     environment.reset();
-    expect(environment.snapshot()).toEqual({ blackout: false, generatorOnline: true, generators: { "generator-a": true, "generator-b": true }, cctvOnline: true, communicationsOnline: true, doorLocked: false, doorState: "OPEN", taskProgress: 0 });
+    expect(environment.snapshot()).toEqual({ blackout: false, generatorOnline: true, generators: { "generator-a": true, "generator-b": true }, cctvOnline: true, communicationsOnline: true, doorLocked: false, doorState: "OPEN", taskProgress: 0, alarmActive: false, barricades: [], cargoCarrierIds: [], cargoCompletedIds: [], securityCardCompletedIds: [] });
   });
 
   it("3초보다 일찍 복구 완료를 요청하면 정전이 유지된다", () => {
@@ -41,9 +41,10 @@ describe("EnvironmentSystem", () => {
     expect(() => environment.startRepair("survivor", "SURVIVOR", "generator-a", generator, 2_000)).toThrow("복구 시작");
   });
 
-  it("마피아만 서쪽 숲 환풍구에서 동쪽 출구로 이동할 수 있다", () => {
+  it("마피아는 양쪽 환풍구에서 반대편 출구로 이동할 수 있다", () => {
     const environment = new EnvironmentSystem();
     expect(environment.useVent("MAFIA", VENT_ENTRANCE_POSITION)).toEqual(VENT_EXIT_POSITION);
+    expect(environment.useVent("MAFIA", VENT_EXIT_POSITION)).toEqual({ ...VENT_ENTRANCE_POSITION, y: VENT_EXIT_POSITION.y });
     expect(() => environment.useVent("SURVIVOR", VENT_ENTRANCE_POSITION)).toThrow("환풍구");
   });
 
@@ -53,6 +54,15 @@ describe("EnvironmentSystem", () => {
     expect(environment.completeCircuitTask("survivor", "SURVIVOR", CIRCUIT_PANEL_POSITION, ["AMBER", "CYAN", "VIOLET"])).toBe(false);
     expect(environment.snapshot().taskProgress).toBe(25);
     expect(() => environment.completeCircuitTask("survivor", "SURVIVOR", CIRCUIT_PANEL_POSITION, ["AMBER", "CYAN", "VIOLET"])).toThrow("회로 연결");
+  });
+
+  it("시민만 단말 가까이에서 올바른 보안 카드 패턴을 한 번 인증할 수 있다", () => {
+    const environment = new EnvironmentSystem();
+    expect(() => environment.completeSecurityCardTask("survivor", "SURVIVOR", SECURITY_CARD_POSITION, ["LEFT", "RIGHT", "UP", "DOWN"])).toThrow("보안 카드 인증");
+    expect(() => environment.completeSecurityCardTask("mafia", "MAFIA", SECURITY_CARD_POSITION, ["LEFT", "UP", "RIGHT", "DOWN"])).toThrow("보안 카드 인증");
+    expect(environment.completeSecurityCardTask("survivor", "SURVIVOR", SECURITY_CARD_POSITION, ["LEFT", "UP", "RIGHT", "DOWN"])).toBe(false);
+    expect(environment.snapshot()).toMatchObject({ taskProgress: 25, securityCardCompletedIds: ["survivor"] });
+    expect(() => environment.completeSecurityCardTask("survivor", "SURVIVOR", SECURITY_CARD_POSITION, ["LEFT", "UP", "RIGHT", "DOWN"])).toThrow("보안 카드 인증");
   });
 
   it("시민은 셔터를 개폐하고 마피아는 닫힌 셔터를 잠근다", () => {
@@ -80,5 +90,44 @@ describe("EnvironmentSystem", () => {
     environment.sabotage("mafia", "MAFIA", "generator-a", 1_000);
     expect(environment.isCctvOperating("survivor")).toBe(false);
     expect(() => environment.startCctv("survivor", "SURVIVOR", CCTV_CONSOLE_POSITION)).toThrow("CCTV 관제");
+  });
+
+  it("시민은 한 판에 한 번만 30초 경보 바리케이드를 설치할 수 있다", () => {
+    const environment = new EnvironmentSystem();
+    const position = { x: 20, y: 1.4, z: 20 };
+    environment.deployBarricade("survivor", "SURVIVOR", position, 0, 1_000, () => true);
+    expect(environment.snapshot()).toMatchObject({ alarmActive: true, barricades: [{ ownerId: "survivor", position: { x: 20, y: 0.8, z: 18 }, expiresAt: 31_000 }] });
+    expect(() => environment.deployBarricade("survivor", "SURVIVOR", position, 0, 2_000, () => true)).toThrow("바리케이드 설치");
+    expect(environment.advance(30_999)).toBe(false);
+    expect(environment.advance(31_000)).toBe(true);
+    expect(environment.snapshot()).toMatchObject({ alarmActive: false, barricades: [] });
+  });
+
+  it("마피아만 가까운 경보 바리케이드를 해체할 수 있다", () => {
+    const environment = new EnvironmentSystem();
+    environment.deployBarricade("survivor", "SURVIVOR", { x: 20, y: 1.4, z: 20 }, 0, 1_000, () => true);
+    expect(() => environment.dismantleNearestBarricade("SURVIVOR", { x: 20, y: 1.4, z: 18.3 })).toThrow("바리케이드 해체");
+    environment.dismantleNearestBarricade("MAFIA", { x: 20, y: 1.4, z: 18.3 });
+    expect(environment.snapshot()).toMatchObject({ alarmActive: false, barricades: [] });
+  });
+
+  it("시민은 보급 상자 획득 뒤 통신실 납품 순서로 한 번만 공통 임무를 진행한다", () => {
+    const environment = new EnvironmentSystem();
+    expect(() => environment.deliverCargo("survivor", "SURVIVOR", CARGO_DELIVERY_POSITION)).toThrow("물품 납품");
+    expect(() => environment.pickupCargo("mafia", "MAFIA", CARGO_PICKUP_POSITION)).toThrow("물품 획득");
+    environment.pickupCargo("survivor", "SURVIVOR", CARGO_PICKUP_POSITION);
+    expect(environment.snapshot()).toMatchObject({ cargoCarrierIds: ["survivor"], taskProgress: 0 });
+    expect(environment.deliverCargo("survivor", "SURVIVOR", CARGO_DELIVERY_POSITION)).toBe(false);
+    expect(environment.snapshot()).toMatchObject({ cargoCarrierIds: [], cargoCompletedIds: ["survivor"], taskProgress: 25 });
+    expect(() => environment.pickupCargo("survivor", "SURVIVOR", CARGO_PICKUP_POSITION)).toThrow("물품 획득");
+  });
+
+  it("사망하거나 연결이 끊긴 운송자의 물품은 서버가 보급 상자로 되돌린다", () => {
+    const environment = new EnvironmentSystem();
+    environment.pickupCargo("survivor", "SURVIVOR", CARGO_PICKUP_POSITION);
+    expect(environment.releaseInactiveCargo([])).toBe(true);
+    expect(environment.snapshot().cargoCarrierIds).toEqual([]);
+    environment.pickupCargo("survivor", "SURVIVOR", CARGO_PICKUP_POSITION);
+    expect(environment.releaseInactiveCargo(["survivor"])).toBe(false);
   });
 });

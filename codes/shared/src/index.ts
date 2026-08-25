@@ -8,7 +8,7 @@ export type DeviceState = "READY" | "ACTIVE" | "OFFLINE";
 export type InteractableState = {
   id: string;
   name: string;
-  type: "GENERATOR" | "DOOR" | "LADDER" | "VENT" | "BELL" | "TASK_PANEL" | "CCTV" | "COMMUNICATIONS";
+  type: "GENERATOR" | "DOOR" | "LADDER" | "VENT" | "BELL" | "TASK_PANEL" | "SECURITY_CARD" | "CCTV" | "COMMUNICATIONS" | "CARGO_PICKUP" | "CARGO_DELIVERY";
   position: Vector3Data;
   interactionRange: number;
   currentState: DeviceState;
@@ -19,8 +19,10 @@ export type GameState = "LOBBY" | "PLAYING" | "MEETING" | "VOTING" | "GAME_OVER"
 export type RoleTeam = "SURVIVOR" | "MAFIA";
 export type PlayerLifeState = "ALIVE" | "DEAD" | "GHOST";
 
-/** 서버와 클라이언트가 함께 쓰는 마피아 처치 최대 거리다. */
-export const KILL_RANGE = 2;
+/** 서버와 클라이언트가 함께 쓰는 처치와 신고 최대 거리다. */
+export const KILL_RANGE = 2.4;
+/** 서버와 클라이언트가 함께 쓰는 장치 상호작용 최대 거리다. */
+export const INTERACTION_RANGE = 2.4;
 
 /** 게임 시작 직후 마피아가 처치할 수 있을 때까지의 대기 시간이다. */
 export const INITIAL_KILL_COOLDOWN_MS = 20_000;
@@ -44,10 +46,18 @@ export const SURVIVOR_BLACKOUT_VIEW_DISTANCE = 4.5;
 
 /** 시민이 발전기 복구 버튼을 유지해야 하는 최소 시간이다. */
 export const REPAIR_HOLD_DURATION_MS = 3_000;
+/** 시민 한 명이 한 판에서 설치할 수 있는 바리케이드 수다. */
+export const BARRICADE_USES_PER_SURVIVOR = 1;
+/** 설치된 바리케이드와 경보가 유지되는 시간이다. */
+export const BARRICADE_DURATION_MS = 30_000;
+/** 바리케이드가 차지하는 수평 충돌 크기다. */
+export const BARRICADE_COLLIDER_SIZE: Vector3Data = { x: 2.8, y: 1.6, z: 2.8 };
 
 /** 정전과 복구 대상으로 쓸 발전기 식별자다. */
 export type GeneratorId = "generator-a" | "generator-b";
 export type DoorState = "OPEN" | "CLOSED" | "LOCKED";
+/** 서버가 공유하는 설치형 바리케이드 한 건이다. */
+export type BarricadeState = { id: string; ownerId: string; position: Vector3Data; expiresAt: number };
 
 /** 클라이언트 물리와 서버 이동 검증이 함께 쓰는 맵 충돌 상자다. */
 export type WorldCollider = { id: string; position: Vector3Data; size: Vector3Data };
@@ -62,6 +72,12 @@ export const VENT_EXIT_POSITION: Vector3Data = { x: 76, y: 1.4, z: -42 };
 export const EMERGENCY_BELL_POSITION: Vector3Data = { x: 0, y: 0, z: 27.5 };
 /** 서쪽 숲 가장자리의 시민 공통 임무 회로 제어반 위치다. */
 export const CIRCUIT_PANEL_POSITION: Vector3Data = { x: -48, y: 0, z: -12 };
+/** 서쪽 숲 보급 상자의 물품 획득 위치다. */
+export const CARGO_PICKUP_POSITION: Vector3Data = { x: -72, y: 0, z: 12 };
+/** 동쪽 통신실 납품대의 물품 전달 위치다. */
+export const CARGO_DELIVERY_POSITION: Vector3Data = { x: 42, y: 0, z: 42 };
+/** 중앙 복도 보안 카드 인증 단말 위치다. */
+export const SECURITY_CARD_POSITION: Vector3Data = { x: 18, y: 0, z: 18 };
 /** 서쪽 산장 출입구의 시민 개폐·마피아 잠금 셔터 위치다. */
 export const SECURITY_SHUTTER_POSITION: Vector3Data = { x: -36, y: 0, z: -30 };
 export const SECURITY_SHUTTER_COLLIDER: WorldCollider = { id: "security-shutter", position: { x: -36, y: 1.5, z: -30 }, size: { x: 0.5, y: 3, z: 3.2 } };
@@ -159,7 +175,7 @@ export type ClientMessage =
   | { type: "START_VOTING" }
   | { type: "VOTE"; targetId: string | "SKIP" }
   | { type: "CHAT"; text: string }
-  | { type: "ENVIRONMENT"; action: "SABOTAGE" | "REPAIR_START" | "REPAIR_COMPLETE" | "REPAIR_CANCEL" | "VENT" | "TASK" | "DOOR_TOGGLE" | "DOOR_LOCK" | "CCTV_OPEN" | "CCTV_CLOSE" | "COMM_SABOTAGE" | "COMM_REPAIR"; deviceId?: GeneratorId; puzzle?: string[] }
+  | { type: "ENVIRONMENT"; action: "SABOTAGE" | "REPAIR_START" | "REPAIR_COMPLETE" | "REPAIR_CANCEL" | "VENT" | "TASK" | "SECURITY_CARD_TASK" | "DOOR_TOGGLE" | "DOOR_LOCK" | "CCTV_OPEN" | "CCTV_CLOSE" | "COMM_SABOTAGE" | "COMM_REPAIR" | "BARRICADE_DEPLOY" | "BARRICADE_DISMANTLE" | "CARGO_PICKUP" | "CARGO_DELIVER"; deviceId?: GeneratorId; puzzle?: string[] }
   | { type: "MOVE"; direction: { x: number; z: number }; rotation: number; run: boolean; sequence: number }
   | { type: "PING" };
 
@@ -176,4 +192,4 @@ export type ServerMessage =
   | { type: "PONG" };
 
 /** 서버가 동기화하는 환경 장치 상태다. */
-export type EnvironmentState = { blackout: boolean; generatorOnline: boolean; generators: Record<GeneratorId, boolean>; cctvOnline: boolean; communicationsOnline: boolean; doorLocked: boolean; doorState: DoorState; taskProgress: number };
+export type EnvironmentState = { blackout: boolean; generatorOnline: boolean; generators: Record<GeneratorId, boolean>; cctvOnline: boolean; communicationsOnline: boolean; doorLocked: boolean; doorState: DoorState; taskProgress: number; alarmActive: boolean; barricades: BarricadeState[]; cargoCarrierIds: string[]; cargoCompletedIds: string[]; securityCardCompletedIds: string[] };

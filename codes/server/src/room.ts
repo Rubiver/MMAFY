@@ -1,8 +1,9 @@
-import { EMERGENCY_BELL_POSITION, INITIAL_KILL_COOLDOWN_MS, INTERACTION_COLLIDERS, KILL_COOLDOWN_MS, KILL_RANGE, MEETING_DURATION_MS, PLAYER_COLLISION_RADIUS, PLAYER_RUN_SPEED, PLAYER_SPAWN_POSITIONS, PLAYER_WALK_SPEED, SECURITY_SHUTTER_COLLIDER, WORLD_COLLIDERS, type GameState, type MeetingResult, type MeetingState, type NetworkPlayer, type PlayerLifeState, type RoleTeam, type RoomSnapshot, type Vector3Data } from "@mafia/shared";
+import { BARRICADE_COLLIDER_SIZE, EMERGENCY_BELL_POSITION, INITIAL_KILL_COOLDOWN_MS, INTERACTION_COLLIDERS, KILL_COOLDOWN_MS, KILL_RANGE, MEETING_DURATION_MS, PLAYER_COLLISION_RADIUS, PLAYER_RUN_SPEED, PLAYER_SPAWN_POSITIONS, PLAYER_WALK_SPEED, SECURITY_SHUTTER_COLLIDER, WORLD_COLLIDERS, type BarricadeState, type GameState, type MeetingResult, type MeetingState, type NetworkPlayer, type PlayerLifeState, type RoleTeam, type RoomSnapshot, type Vector3Data } from "@mafia/shared";
 
 export const MAX_PLAYERS = 25;
 const MAX_INPUT_INTERVAL_MS = 100;
 const RECONNECT_GRACE_MS = 30_000;
+const FINAL_KILL_REPORT_GRACE_MS = 10_000;
 const SPAWN_POSITION: Vector3Data = PLAYER_SPAWN_POSITIONS[0];
 
 type InternalPlayer = NetworkPlayer & { resumeToken: string; lastMoveAt: number; lastMoveSequence: number; killCooldownEndsAt: number; lastChatAt: number; disconnectedAt?: number };
@@ -18,22 +19,30 @@ export class GameRoom {
   private meetingResult?: MeetingResult;
   private meetingPositions = new Map<string, Vector3Data>();
   private result?: { winner: RoleTeam; expelledId?: string };
+  private pendingMafiaWinAt?: number;
 
-  /** @param roomId 사람이 확인할 수 있는 방 식별자 */
-  constructor(private readonly roomId: string) {}
+  /**
+   * @param roomId 사람이 확인할 수 있는 방 식별자
+   * @param movementSpeedMultiplier 개발·테스트용 이동 속도 배율이며 운영에서는 항상 1이다
+   */
+  constructor(private readonly roomId: string, private readonly movementSpeedMultiplier = 1) {
+    if (!Number.isFinite(movementSpeedMultiplier) || movementSpeedMultiplier < 1 || movementSpeedMultiplier > 5) throw new RangeError("이동 속도 배율은 1부터 5 사이여야 합니다.");
+  }
 
   /** 새 참가자를 방에 넣거나 재접속 참가자를 복구한다. @throws 방 정원이 찼거나 게임이 시작된 경우 */
   join(playerId: string, displayName: string, resumeToken: string | undefined, now: number): { resumeToken: string; snapshot: RoomSnapshot } {
     const reconnecting = resumeToken ? [...this.players.values()].find((player) => player.resumeToken === resumeToken) : undefined;
-    if (reconnecting && reconnecting.disconnectedAt && now - reconnecting.disconnectedAt <= RECONNECT_GRACE_MS) {
+    if (reconnecting && (reconnecting.disconnectedAt === undefined || now - reconnecting.disconnectedAt <= RECONNECT_GRACE_MS)) {
+      const wasHost = this.hostId === reconnecting.id;
       this.players.delete(reconnecting.id);
       reconnecting.id = playerId;
       reconnecting.displayName = sanitizeName(displayName);
       reconnecting.connected = true;
       reconnecting.disconnectedAt = undefined;
       reconnecting.lastMoveAt = now;
+      reconnecting.lastMoveSequence = -1;
       this.players.set(playerId, reconnecting);
-      if (this.hostId === undefined) this.hostId = playerId;
+      if (wasHost || this.hostId === undefined) this.hostId = playerId;
       return { resumeToken: reconnecting.resumeToken, snapshot: this.snapshot() };
     }
     if (this.gameState !== "LOBBY") throw new RoomError("GAME_STARTED", "이미 게임이 시작되었습니다.");
@@ -53,6 +62,7 @@ export class GameRoom {
     const wasHost = this.hostId === playerId;
     player.connected = false;
     player.disconnectedAt = now;
+    if (wasHost) this.hostId = [...this.players.values()].find((candidate) => candidate.id !== playerId && candidate.connected)?.id;
     return wasHost;
   }
 
@@ -94,13 +104,14 @@ export class GameRoom {
     const killer = this.getPlayer(playerId); const target = this.getPlayer(targetId);
     if (this.gameState !== "PLAYING" || this.roles.get(playerId) !== "MAFIA" || this.roles.get(targetId) !== "SURVIVOR" || killer.lifeState !== "ALIVE" || target.lifeState !== "ALIVE" || playerId === targetId || distance(killer.position, target.position) > KILL_RANGE) throw new RoomError("INVALID_MESSAGE", "처치 조건을 만족하지 않습니다.");
     if (now < killer.killCooldownEndsAt) throw new RoomError("INVALID_MESSAGE", "처치 재사용 대기 중입니다.");
-    killer.killCooldownEndsAt = now + KILL_COOLDOWN_MS; target.lifeState = "DEAD"; target.bodyId = `body-${target.id}-${now}`; this.checkMafiaWin();
+    killer.killCooldownEndsAt = now + KILL_COOLDOWN_MS; target.lifeState = "DEAD"; target.bodyId = `body-${target.id}-${now}`;
+    if (this.hasMafiaAdvantage()) this.pendingMafiaWinAt = now + FINAL_KILL_REPORT_GRACE_MS;
   }
 
   /** 시체를 신고해 회의를 시작한다. */
   report(playerId: string, bodyId: string, now: number): void {
     const reporter = this.getPlayer(playerId); const body = [...this.players.values()].find((player) => player.bodyId === bodyId);
-    if (this.gameState !== "PLAYING" || reporter.lifeState !== "ALIVE" || !body || distance(reporter.position, body.position) > 2) throw new RoomError("INVALID_MESSAGE", "신고 조건을 만족하지 않습니다.");
+    if (this.gameState !== "PLAYING" || reporter.lifeState !== "ALIVE" || !body || distance(reporter.position, body.position) > KILL_RANGE) throw new RoomError("INVALID_MESSAGE", "신고 조건을 만족하지 않습니다.");
     this.beginMeeting(playerId, bodyId, now);
   }
 
@@ -133,13 +144,14 @@ export class GameRoom {
    * @returns 상태가 변경됐는지 여부
    */
   advance(now: number): boolean {
+    if (this.gameState === "PLAYING" && this.pendingMafiaWinAt !== undefined && now >= this.pendingMafiaWinAt) { this.pendingMafiaWinAt = undefined; this.checkMafiaWin(); return this.gameState === "GAME_OVER"; }
     if (this.gameState === "MEETING" && this.meeting && now >= this.meeting.endsAt) { this.finishVote(now); return true; }
     if (this.gameState === "VOTING" && this.meetingResult && now >= this.meetingResult.endsAt) { this.completeMeetingResult(); return true; }
     return false;
   }
 
   /** 입력 방향을 속도와 최대 시간 간격으로 제한해 위치에 적용한다. */
-  move(playerId: string, direction: { x: number; z: number }, rotation: number, run: boolean, now: number, sequence = now, shutterClosed = false, inputBlocked = false): Vector3Data | undefined {
+  move(playerId: string, direction: { x: number; z: number }, rotation: number, run: boolean, now: number, sequence = now, shutterClosed = false, inputBlocked = false, barricades: BarricadeState[] = []): Vector3Data | undefined {
     const player = this.getPlayer(playerId);
     if (this.gameState !== "PLAYING" || player.lifeState !== "ALIVE" || !player.connected || inputBlocked || sequence <= player.lastMoveSequence) return undefined;
     if (!Number.isFinite(direction.x) || !Number.isFinite(direction.z) || !Number.isFinite(rotation)) throw new RoomError("INVALID_MESSAGE", "이동 입력 값이 올바르지 않습니다.");
@@ -148,8 +160,8 @@ export class GameRoom {
     player.lastMoveSequence = sequence;
     const length = Math.hypot(direction.x, direction.z);
     const factor = length > 1 ? 1 / length : 1;
-    const speed = run ? PLAYER_RUN_SPEED : PLAYER_WALK_SPEED; const movement = { x: direction.x * factor * speed * elapsed, z: direction.z * factor * speed * elapsed };
-    player.position = resolveMovement(player.position, movement, shutterClosed);
+    const speed = (run ? PLAYER_RUN_SPEED : PLAYER_WALK_SPEED) * this.movementSpeedMultiplier; const movement = { x: direction.x * factor * speed * elapsed, z: direction.z * factor * speed * elapsed };
+    player.position = resolveMovement(player.position, movement, shutterClosed, barricades);
     player.rotation = Number.isFinite(rotation) ? normalizeYaw(rotation) : player.rotation;
     return { ...player.position };
   }
@@ -173,6 +185,14 @@ export class GameRoom {
   killCooldownRemainingMs(playerId: string, now: number): number { const player = this.getPlayer(playerId); return this.roles.get(playerId) === "MAFIA" ? Math.max(0, player.killCooldownEndsAt - now) : 0; }
   /** 시민 공통 임무가 모두 끝났을 때 서버가 시민 승리를 확정한다. */
   completeTaskVictory(): void { if (this.gameState !== "PLAYING") throw new RoomError("INVALID_MESSAGE", "임무 승리를 확정할 수 없는 상태입니다."); this.result = { winner: "SURVIVOR" }; this.gameState = "GAME_OVER"; }
+  /** 설치 후보가 맵·참가자·기존 바리케이드와 겹치지 않는지 서버에서 확인한다. */
+  canPlaceBarricade(position: Vector3Data, barricades: BarricadeState[], _ownerId: string): boolean {
+    const halfWidth = BARRICADE_COLLIDER_SIZE.x / 2 + PLAYER_COLLISION_RADIUS;
+    const halfDepth = BARRICADE_COLLIDER_SIZE.z / 2 + PLAYER_COLLISION_RADIUS;
+    return isWalkable(position, false, barricades) && [...this.players.values()]
+      .filter((player) => player.connected && player.lifeState === "ALIVE")
+      .every((player) => Math.abs(player.position.x - position.x) > halfWidth || Math.abs(player.position.z - position.z) > halfDepth);
+  }
 
   /** 참가자 존재 여부를 검증한다. */
   private getPlayer(playerId: string): InternalPlayer {
@@ -183,13 +203,15 @@ export class GameRoom {
 
   /** 신고자와 종료 시각을 기록하고 90초 통합 회의를 시작한다. */
   /** 회의 전 위치를 복사해 결과 연출 뒤 같은 지점에서 플레이를 재개한다. */
-  private beginMeeting(reporterId: string, bodyId: string | undefined, now: number): void { this.meetingPositions = new Map([...this.players.values()].map((player) => [player.id, { ...player.position }])); this.meeting = { reporterId, bodyId, votes: {}, endsAt: now + MEETING_DURATION_MS, messages: [] }; this.meetingResult = undefined; this.gameState = "MEETING"; }
+  private beginMeeting(reporterId: string, bodyId: string | undefined, now: number): void { this.pendingMafiaWinAt = undefined; this.meetingPositions = new Map([...this.players.values()].map((player) => [player.id, { ...player.position }])); this.meeting = { reporterId, bodyId, votes: {}, endsAt: now + MEETING_DURATION_MS, messages: [] }; this.meetingResult = undefined; this.gameState = "MEETING"; }
   /** 표를 집계해 건너뛰기 또는 처형 결과를 3초간 전파한다. */
   private finishVote(now: number, forcedSkip = false): void { if (!this.meeting) return; const counts = new Map<string, number>(); for (const target of Object.values(this.meeting.votes)) counts.set(target, (counts.get(target) ?? 0) + 1); const top = [...counts.entries()].sort((a, b) => b[1] - a[1]); const expelled = !forcedSkip && top.length && (top.length === 1 || top[0][1] > top[1][1]) && top[0][0] !== "SKIP" ? top[0][0] : undefined; this.meeting = undefined; this.meetingResult = { type: expelled ? "EXPEL" : "SKIP", expelledId: expelled, endsAt: now + 3_000 }; this.gameState = "VOTING"; }
   /** 결과 연출 시간이 끝나면 처형을 확정하고 회의 전 위치에서 게임을 재개한다. */
-  private completeMeetingResult(): void { const expelled = this.meetingResult?.expelledId; if (expelled) { const player = this.getPlayer(expelled); player.lifeState = "GHOST"; player.bodyId = undefined; } for (const player of this.players.values()) { const position = this.meetingPositions.get(player.id); if (position) player.position = { ...position }; } this.meetingPositions.clear(); this.meetingResult = undefined; this.gameState = "PLAYING"; }
+  private completeMeetingResult(): void { const expelled = this.meetingResult?.expelledId; if (expelled) { const player = this.getPlayer(expelled); player.lifeState = "GHOST"; player.bodyId = undefined; } for (const player of this.players.values()) { const position = this.meetingPositions.get(player.id); if (position) player.position = { ...position }; } this.meetingPositions.clear(); this.meetingResult = undefined; this.gameState = "PLAYING"; this.checkMafiaWin(); }
   /** 살아 있는 마피아가 시민 수와 같거나 많아지면 마피아 승리를 확정한다. */
-  private checkMafiaWin(): void { const alive = [...this.players.values()].filter((player) => player.lifeState === "ALIVE"); const mafia = alive.filter((player) => this.roles.get(player.id) === "MAFIA"); const survivors = alive.length - mafia.length; if (mafia.length > 0 && mafia.length >= survivors) { this.result = { winner: "MAFIA" }; this.gameState = "GAME_OVER"; } }
+  private checkMafiaWin(): void { if (this.hasMafiaAdvantage()) { this.result = { winner: "MAFIA" }; this.gameState = "GAME_OVER"; } }
+  /** 살아 있는 마피아 수가 시민 수 이상인지 계산한다. */
+  private hasMafiaAdvantage(): boolean { const alive = [...this.players.values()].filter((player) => player.lifeState === "ALIVE"); const mafiaCount = alive.filter((player) => this.roles.get(player.id) === "MAFIA").length; return mafiaCount > 0 && mafiaCount >= alive.length - mafiaCount; }
 }
 
 /** 방 규칙 검증 실패를 클라이언트 오류로 변환한다. */
@@ -213,21 +235,21 @@ function distance(left: Vector3Data, right: Vector3Data): number { return Math.h
  * @param movement 이번 입력에서 허용된 수평 이동량
  * @returns 장애물 충돌을 해소한 새 위치
  */
-function resolveMovement(position: Vector3Data, movement: { x: number; z: number }, shutterClosed = false): Vector3Data {
+function resolveMovement(position: Vector3Data, movement: { x: number; z: number }, shutterClosed = false, barricades: BarricadeState[] = []): Vector3Data {
   const candidate = { x: position.x + movement.x, y: SPAWN_POSITION.y, z: position.z + movement.z };
-  if (isWalkable(candidate, shutterClosed)) return candidate;
+  if (isWalkable(candidate, shutterClosed, barricades)) return candidate;
   const xOnly = { x: candidate.x, y: SPAWN_POSITION.y, z: position.z };
-  if (isWalkable(xOnly, shutterClosed)) return xOnly;
+  if (isWalkable(xOnly, shutterClosed, barricades)) return xOnly;
   const zOnly = { x: position.x, y: SPAWN_POSITION.y, z: candidate.z };
-  return isWalkable(zOnly, shutterClosed) ? zOnly : { x: position.x, y: SPAWN_POSITION.y, z: position.z };
+  return isWalkable(zOnly, shutterClosed, barricades) ? zOnly : { x: position.x, y: SPAWN_POSITION.y, z: position.z };
 }
 
 /** 플레이어 충돌 원이 맵 충돌 상자와 겹치지 않는지 판정한다.
  * @param position 확인할 플레이어 위치
  * @returns 이동 가능한지 여부
  */
-function isWalkable(position: Vector3Data, shutterClosed: boolean): boolean {
-  return [...WORLD_COLLIDERS, ...INTERACTION_COLLIDERS, ...(shutterClosed ? [SECURITY_SHUTTER_COLLIDER] : [])].every((collider) => Math.abs(position.x - collider.position.x) > collider.size.x / 2 + PLAYER_COLLISION_RADIUS || Math.abs(position.z - collider.position.z) > collider.size.z / 2 + PLAYER_COLLISION_RADIUS);
+function isWalkable(position: Vector3Data, shutterClosed: boolean, barricades: BarricadeState[] = []): boolean {
+  return [...WORLD_COLLIDERS, ...INTERACTION_COLLIDERS, ...(shutterClosed ? [SECURITY_SHUTTER_COLLIDER] : []), ...barricades.map((barricade) => ({ id: barricade.id, position: barricade.position, size: BARRICADE_COLLIDER_SIZE }))].every((collider) => Math.abs(position.x - collider.position.x) > collider.size.x / 2 + PLAYER_COLLISION_RADIUS || Math.abs(position.z - collider.position.z) > collider.size.z / 2 + PLAYER_COLLISION_RADIUS);
 }
 
 /** 임의의 회전값을 원격 화면이 동일하게 해석할 수 있는 -파이부터 파이 사이 yaw로 정리한다. */

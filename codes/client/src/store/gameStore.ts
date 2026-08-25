@@ -15,8 +15,10 @@ type GameStore = {
   aimedKillTargetId?: string;
   killTargetIds: string[];
   nearbyBodyId?: string;
+  spectatorTargetId?: string;
   repairProgress: number;
   taskPanelOpen: boolean;
+  securityCardPanelOpen: boolean;
   cctvOpen: boolean;
   setPlayerPosition: (position: Vector3Data) => void;
   setNearbyDevice: (device?: InteractableState) => void;
@@ -29,8 +31,10 @@ type GameStore = {
   setAimedKillTarget: (playerId?: string) => void;
   setKillTargetIds: (playerIds: string[]) => void;
   setNearbyBody: (bodyId?: string) => void;
+  setSpectatorTarget: (playerId?: string) => void;
   setRepairProgress: (progress: number) => void;
   setTaskPanelOpen: (open: boolean) => void;
+  setSecurityCardPanelOpen: (open: boolean) => void;
   setCctvOpen: (open: boolean) => void;
 };
 
@@ -48,6 +52,7 @@ export const useGameStore = create<GameStore>((set) => ({
   killTargetIds: [],
   repairProgress: 0,
   taskPanelOpen: false,
+  securityCardPanelOpen: false,
   cctvOpen: false,
   setRole: (role, mafiaIds) => set({ role, mafiaIds }),
   setEnvironment: (environment) => set({ environment }),
@@ -55,7 +60,16 @@ export const useGameStore = create<GameStore>((set) => ({
   setAimedKillTarget: (aimedKillTargetId) => set({ aimedKillTargetId }),
   setKillTargetIds: (killTargetIds) => set({ killTargetIds }),
   setNearbyBody: (nearbyBodyId) => set({ nearbyBodyId }),
+  setSpectatorTarget: (spectatorTargetId) => set({ spectatorTargetId }),
   setRepairProgress: (repairProgress) => set({ repairProgress: Math.min(1, Math.max(0, repairProgress)) }),
   setTaskPanelOpen: (taskPanelOpen) => set({ taskPanelOpen }),
+  setSecurityCardPanelOpen: (securityCardPanelOpen) => set({ securityCardPanelOpen }),
   setCctvOpen: (cctvOpen) => set({ cctvOpen }),
 }));
+
+declare global {
+  interface Window { __MAFIA_QA__?: { openSecurityCard: () => void } }
+}
+
+/** 개발 화면 검증에서 서버 결과를 바꾸지 않고 보안 카드 화면만 여는 제한된 도우미다. */
+if (import.meta.env.DEV) window.__MAFIA_QA__ = { openSecurityCard: () => { if (document.pointerLockElement) document.exitPointerLock(); useGameStore.getState().setSecurityCardPanelOpen(true); } };

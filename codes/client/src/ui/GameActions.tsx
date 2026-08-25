@@ -52,6 +52,19 @@ function CircuitTaskPanel() {
   return <section className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/70 p-4" aria-label="회로 연결 퍼즐"><div className="w-full max-w-md rounded-3xl border border-cyan-200/40 bg-slate-900 p-5 shadow-2xl sm:p-7"><p className="text-xs font-bold tracking-[0.16em] text-cyan-300">공통 임무 · 회로 제어반</p><h2 className="mt-2 text-2xl font-bold text-white">빛의 순서대로 회로를 연결하세요</h2><p className="mt-2 text-sm leading-6 text-slate-300">위의 신호 순서는 <b className="text-amber-200">호박 → 청록 → 보라</b>입니다. 올바르게 연결하면 공통 임무가 25% 진행됩니다.</p><div className="mt-5 flex h-14 items-center justify-center gap-2 rounded-2xl border border-slate-700 bg-slate-950/80">{[0, 1, 2].map((index) => <span key={index} className="flex h-9 w-20 items-center justify-center rounded-lg bg-slate-800 text-xs font-bold text-slate-300">{sequence[index] ? colors.find((color) => color.id === sequence[index])?.name : "?"}</span>)}</div><div className="mt-5 grid grid-cols-3 gap-3">{colors.map((color) => <button key={color.id} type="button" onClick={() => choose(color.id)} className={`min-h-16 rounded-2xl px-2 py-3 text-sm font-bold transition hover:scale-[1.03] focus:outline-none focus:ring-2 focus:ring-white ${color.className}`}>{color.name}</button>)}</div><button type="button" onClick={() => { setSequence([]); setOpen(false); restoreGamePointerLock(); }} className="mt-4 w-full rounded-xl bg-slate-800 px-4 py-3 text-sm font-semibold text-slate-200">취소</button></div></section>;
 }
 
+/** 시민이 방향 패턴을 순서대로 입력하는 보안 카드 인증 화면이다. */
+function SecurityCardPanel() {
+  const open = useGameStore((state) => state.securityCardPanelOpen);
+  const setOpen = useGameStore((state) => state.setSecurityCardPanelOpen);
+  const setMessage = useGameStore((state) => state.setInteractionMessage);
+  const [pattern, setPattern] = useState<string[]>([]);
+  const directions = [{ id: "LEFT", symbol: "←", name: "왼쪽" }, { id: "UP", symbol: "↑", name: "위" }, { id: "RIGHT", symbol: "→", name: "오른쪽" }, { id: "DOWN", symbol: "↓", name: "아래" }];
+  if (!open) return null;
+  const choose = (direction: string) => { const next = [...pattern, direction]; if (next.length < 4) { setPattern(next); return; } getActiveGameClient()?.environment("SECURITY_CARD_TASK", undefined, next); setPattern([]); setOpen(false); setMessage("보안 카드 인증 결과를 서버에 확인합니다."); restoreGamePointerLock(); };
+  const close = () => { setPattern([]); setOpen(false); restoreGamePointerLock(); };
+  return <section className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/80 p-4" aria-label="보안 카드 인증"><div className="w-full max-w-lg rounded-3xl border border-sky-200/40 bg-slate-900 p-5 shadow-2xl shadow-sky-950/50 sm:p-7"><p className="text-xs font-bold tracking-[0.16em] text-sky-300">공통 임무 · 보안 카드</p><h2 className="mt-2 text-2xl font-bold text-white">표시된 방향으로 카드를 인증하세요</h2><p className="mt-2 text-sm leading-6 text-slate-300">인증 패턴은 <b className="text-sky-200">왼쪽 → 위 → 오른쪽 → 아래</b>입니다. 서버가 순서·거리·중복 완료를 확인합니다.</p><div className="mt-5 flex h-16 items-center justify-center gap-2 rounded-2xl border border-slate-700 bg-slate-950/80">{[0, 1, 2, 3].map((index) => <span key={index} className="flex h-10 w-14 items-center justify-center rounded-xl bg-slate-800 text-xl font-bold text-sky-200">{directions.find((item) => item.id === pattern[index])?.symbol ?? "?"}</span>)}</div><div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">{directions.map((direction) => <button key={direction.id} type="button" onClick={() => choose(direction.id)} className="min-h-20 rounded-2xl border border-sky-200/30 bg-sky-500/15 px-3 py-3 text-sky-50 transition hover:scale-[1.03] hover:bg-sky-500/25 focus:outline-none focus:ring-2 focus:ring-sky-200"><span className="block text-2xl" aria-hidden="true">{direction.symbol}</span><b className="mt-1 block text-sm">{direction.name}</b></button>)}</div><button type="button" onClick={close} className="mt-4 w-full rounded-xl bg-slate-800 px-4 py-3 text-sm font-semibold text-slate-200 hover:bg-slate-700">취소</button></div></section>;
+}
+
 /** 시민이 관제실에서만 열 수 있는 원격 참가자 관제 화면이다.
  * @returns CCTV 관제 화면 또는 없음
  */
@@ -87,8 +100,12 @@ export function GameActions() {
   const killTargetIds = useGameStore((state) => state.killTargetIds);
   const taskPanelOpen = useGameStore((state) => state.taskPanelOpen);
   const setTaskPanelOpen = useGameStore((state) => state.setTaskPanelOpen);
+  const securityCardPanelOpen = useGameStore((state) => state.securityCardPanelOpen);
+  const setSecurityCardPanelOpen = useGameStore((state) => state.setSecurityCardPanelOpen);
   const cctvOpen = useGameStore((state) => state.cctvOpen);
   const setCctvOpen = useGameStore((state) => state.setCctvOpen);
+  const spectatorTargetId = useGameStore((state) => state.spectatorTargetId);
+  const setSpectatorTarget = useGameStore((state) => state.setSpectatorTarget);
   const [sabotageHeld, setSabotageHeld] = useState(false);
 
   useEffect(() => {
@@ -100,20 +117,21 @@ export function GameActions() {
       restoreGamePointerLock();
     };
     /** 마피아가 Caps Lock을 누르는 동안 포인터 잠금을 풀고 시설 지도를 연다. */
-    const onKeyDown = (event: KeyboardEvent) => { if (role === "MAFIA" && event.code === "CapsLock" && !event.repeat) { event.preventDefault(); restoreAfterPointerUnlock = false; document.exitPointerLock(); setSabotageHeld(true); } if (event.code === "Escape") { event.preventDefault(); setSabotageHeld(false); if (taskPanelOpen) setTaskPanelOpen(false); if (cctvOpen) { getActiveGameClient()?.environment("CCTV_CLOSE"); setCctvOpen(false); } if (document.pointerLockElement) restoreAfterPointerUnlock = true; else restoreGamePointerLock(); } };
+    const onKeyDown = (event: KeyboardEvent) => { if (role === "MAFIA" && event.code === "CapsLock" && !event.repeat) { event.preventDefault(); restoreAfterPointerUnlock = false; document.exitPointerLock(); setSabotageHeld(true); } if (event.code === "Escape") { event.preventDefault(); setSabotageHeld(false); if (taskPanelOpen) setTaskPanelOpen(false); if (securityCardPanelOpen) setSecurityCardPanelOpen(false); if (cctvOpen) { getActiveGameClient()?.environment("CCTV_CLOSE"); setCctvOpen(false); } if (document.pointerLockElement) restoreAfterPointerUnlock = true; else restoreGamePointerLock(); } };
     /** Caps Lock을 놓으면 지도와 포인터를 원래 게임 조작으로 되돌린다. */
     const onKeyUp = (event: KeyboardEvent) => { if (event.code === "CapsLock") { event.preventDefault(); setSabotageHeld(false); if (document.pointerLockElement) restoreAfterPointerUnlock = true; else restoreGamePointerLock(); } };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
     document.addEventListener("pointerlockchange", onPointerLockChange);
     return () => { window.removeEventListener("keydown", onKeyDown); window.removeEventListener("keyup", onKeyUp); document.removeEventListener("pointerlockchange", onPointerLockChange); };
-  }, [cctvOpen, role, setCctvOpen, setTaskPanelOpen, taskPanelOpen]);
+  }, [cctvOpen, role, securityCardPanelOpen, setCctvOpen, setSecurityCardPanelOpen, setTaskPanelOpen, taskPanelOpen]);
 
   if (!room || !id) return null;
   const me = room.players.find((player) => player.id === id);
   const canAct = room.gameState === "PLAYING" && me?.lifeState === "ALIVE";
+  const spectatorTargets = room.players.filter((player) => player.id !== id && player.connected && player.lifeState === "ALIVE");
   const sabotage = (target: SabotageTarget) => { if (!canAct) return; if (target === "communications") getActiveGameClient()?.environment("COMM_SABOTAGE"); else getActiveGameClient()?.environment("SABOTAGE", target); };
   const aimedTarget = aimedKillTargetId ? room.players.find((player) => player.id === aimedKillTargetId) : undefined;
   const killTargets = killTargetIds.map((targetId) => room.players.find((player) => player.id === targetId)).filter((player): player is NonNullable<typeof player> => Boolean(player));
-  return <><SabotageMap held={role === "MAFIA" && sabotageHeld} blackout={blackout} onSabotage={sabotage} /><CircuitTaskPanel /><CctvPanel /><KillCooldownIndicator /><RepairProgressIndicator /><aside className="fixed bottom-4 left-4 right-28 z-10 flex flex-wrap gap-2 rounded-xl bg-slate-950/90 p-3 text-sm text-white sm:left-auto sm:right-32 sm:w-[420px]"><span className="mr-auto self-center">역할: <b className={role === "MAFIA" ? "text-rose-300" : "text-cyan-300"}>{role === "MAFIA" ? "마피아" : "생존자"}</b> {blackout ? "· 정전" : "· 전력 정상"}</span>{canAct ? <>{role === "MAFIA" ? <div className="flex w-full flex-wrap items-center gap-2 text-xs text-rose-100">{killTargets.length ? <>{killTargets.map((target) => <button key={target.id} type="button" onClick={() => getActiveGameClient()?.kill(target.id)} className={`rounded px-2 py-1 font-semibold ${target.id === aimedTarget?.id ? "bg-rose-500 text-white" : "bg-rose-950/70 text-rose-100"}`}>처치: {target.displayName}</button>)}<span>{aimedTarget ? `${aimedTarget.displayName} 선택 · [Q] 대상 전환 · [F]/좌클릭 처치` : "[Q]로 처치 대상을 선택하세요."}</span></> : <span>처치 거리 안에 시민이 없습니다 · Caps 시설 지도</span>}</div> : <span className="self-center text-xs text-emerald-200">회로 제어반, CCTV 관제대와 긴급 회의 종을 조준하고 E를 누르세요.</span>}</> : null}</aside></>;
+  return <><SabotageMap held={role === "MAFIA" && sabotageHeld} blackout={blackout} onSabotage={sabotage} /><CircuitTaskPanel /><SecurityCardPanel /><CctvPanel /><KillCooldownIndicator /><RepairProgressIndicator /><aside className="fixed bottom-4 left-4 right-28 z-10 flex flex-wrap gap-2 rounded-xl bg-slate-950/90 p-3 text-sm text-white sm:left-auto sm:right-32 sm:w-[420px]"><span className="mr-auto self-center">역할: <b className={role === "MAFIA" ? "text-rose-300" : "text-cyan-300"}>{role === "MAFIA" ? "마피아" : "생존자"}</b> {blackout ? "· 정전" : "· 전력 정상"}</span>{canAct ? <>{role === "MAFIA" ? <div className="flex w-full flex-wrap items-center gap-2 text-xs text-rose-100">{killTargets.length ? <>{killTargets.map((target) => <button key={target.id} type="button" onClick={() => getActiveGameClient()?.kill(target.id)} className={`rounded px-2 py-1 font-semibold ${target.id === aimedTarget?.id ? "bg-rose-500 text-white" : "bg-rose-950/70 text-rose-100"}`}>처치: {target.displayName}</button>)}<span>{aimedTarget ? `${aimedTarget.displayName} 선택 · [Q] 대상 전환 · [F]/좌클릭 처치` : "[Q]로 처치 대상을 선택하세요."}</span></> : <span>처치 거리 안에 시민이 없습니다 · Caps 시설 지도</span>}</div> : <span className="self-center text-xs text-emerald-200">회로 제어반, 보안 카드, CCTV와 긴급 회의 종 가까이에서 E를 누르세요.</span>}</> : null}{room.gameState === "PLAYING" && me?.lifeState !== "ALIVE" ? <div className="w-full border-t border-violet-200/20 pt-2 text-xs text-violet-100"><p className="mb-2 font-semibold">관전 대상 선택</p><div className="flex flex-wrap gap-2">{spectatorTargets.map((player) => <button key={player.id} type="button" onClick={() => setSpectatorTarget(player.id)} className={`rounded px-2 py-1 font-semibold ${spectatorTargetId === player.id ? "bg-violet-400 text-slate-950" : "bg-violet-950/70 hover:bg-violet-900"}`}>{player.displayName}</button>)}</div></div> : null}</aside></>;
 }

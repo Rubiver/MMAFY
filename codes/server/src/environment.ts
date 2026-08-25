@@ -1,6 +1,7 @@
-import { CCTV_CONSOLE_POSITION, CIRCUIT_PANEL_POSITION, COMMUNICATIONS_CONSOLE_POSITION, GENERATOR_POSITIONS, REPAIR_HOLD_DURATION_MS, SECURITY_SHUTTER_POSITION, VENT_ENTRANCE_POSITION, VENT_EXIT_POSITION, type EnvironmentState, type GeneratorId, type RoleTeam, type Vector3Data } from "@mafia/shared";
-const INITIAL_STATE: EnvironmentState = { blackout: false, generatorOnline: true, generators: { "generator-a": true, "generator-b": true }, cctvOnline: true, communicationsOnline: true, doorLocked: false, doorState: "OPEN", taskProgress: 0 };
+import { BARRICADE_DURATION_MS, BARRICADE_USES_PER_SURVIVOR, CARGO_DELIVERY_POSITION, CARGO_PICKUP_POSITION, CCTV_CONSOLE_POSITION, CIRCUIT_PANEL_POSITION, COMMUNICATIONS_CONSOLE_POSITION, GENERATOR_POSITIONS, INTERACTION_RANGE, REPAIR_HOLD_DURATION_MS, SECURITY_CARD_POSITION, SECURITY_SHUTTER_POSITION, VENT_ENTRANCE_POSITION, VENT_EXIT_POSITION, type EnvironmentState, type GeneratorId, type RoleTeam, type Vector3Data } from "@mafia/shared";
+const INITIAL_STATE: EnvironmentState = { blackout: false, generatorOnline: true, generators: { "generator-a": true, "generator-b": true }, cctvOnline: true, communicationsOnline: true, doorLocked: false, doorState: "OPEN", taskProgress: 0, alarmActive: false, barricades: [], cargoCarrierIds: [], cargoCompletedIds: [], securityCardCompletedIds: [] };
 const CIRCUIT_ORDER = ["AMBER", "CYAN", "VIOLET"] as const;
+const SECURITY_CARD_PATTERN = ["LEFT", "UP", "RIGHT", "DOWN"] as const;
 
 /** 환경 장치의 거리, 역할, 쿨타임을 서버에서 검증한다. */
 export class EnvironmentSystem {
@@ -9,11 +10,15 @@ export class EnvironmentSystem {
   private readonly repairStarts = new Map<string, number>();
   private readonly completedCircuitPlayers = new Set<string>();
   private readonly cctvOperators = new Set<string>();
+  private readonly barricadeUsers = new Set<string>();
+  private readonly cargoCarriers = new Set<string>();
+  private readonly cargoCompletedPlayers = new Set<string>();
+  private readonly securityCardCompletedPlayers = new Set<string>();
 
   /** 현재 환경 상태의 복사본을 반환한다. */
-  snapshot(): EnvironmentState { return { ...this.state, generators: { ...this.state.generators } }; }
+  snapshot(): EnvironmentState { return { ...this.state, generators: { ...this.state.generators }, barricades: this.state.barricades.map((barricade) => ({ ...barricade, position: { ...barricade.position } })), cargoCarrierIds: [...this.cargoCarriers], cargoCompletedIds: [...this.cargoCompletedPlayers], securityCardCompletedIds: [...this.securityCardCompletedPlayers] }; }
   /** 새 게임 시작 전에 모든 장치를 정상 상태로 되돌린다. */
-  reset(): void { this.state = { ...INITIAL_STATE, generators: { ...INITIAL_STATE.generators } }; this.cooldowns.clear(); this.repairStarts.clear(); this.completedCircuitPlayers.clear(); this.cctvOperators.clear(); }
+  reset(): void { this.state = { ...INITIAL_STATE, generators: { ...INITIAL_STATE.generators }, barricades: [], cargoCarrierIds: [], cargoCompletedIds: [], securityCardCompletedIds: [] }; this.cooldowns.clear(); this.repairStarts.clear(); this.completedCircuitPlayers.clear(); this.cctvOperators.clear(); this.barricadeUsers.clear(); this.cargoCarriers.clear(); this.cargoCompletedPlayers.clear(); this.securityCardCompletedPlayers.clear(); }
   /** 마피아만 원격으로 지정한 발전기를 고장 내 정전을 시작할 수 있다. */
   sabotage(playerId: string, team: RoleTeam, generatorId: GeneratorId, now: number): void { this.require(team === "MAFIA" && !this.state.blackout && this.state.generators[generatorId] && this.ready(playerId, now), "정전 조건을 만족하지 않습니다."); this.state.blackout = true; this.state.generatorOnline = false; this.state.generators[generatorId] = false; this.state.cctvOnline = false; this.cctvOperators.clear(); }
   /** 시민이 발전기 근처에서 복구 버튼 유지를 시작한다. */
@@ -22,8 +27,13 @@ export class EnvironmentSystem {
   completeRepair(playerId: string, team: RoleTeam, generatorId: GeneratorId, position: Vector3Data, now: number): void { const startedAt = this.repairStarts.get(playerId); this.require(team === "SURVIVOR" && this.state.blackout && !this.state.generators[generatorId] && startedAt !== undefined && now - startedAt >= REPAIR_HOLD_DURATION_MS && near(position, GENERATOR_POSITIONS[generatorId]), "복구 조건을 만족하지 않습니다."); this.repairStarts.delete(playerId); this.state.generators[generatorId] = true; this.state.blackout = false; this.state.generatorOnline = true; this.state.cctvOnline = this.state.communicationsOnline; }
   /** 버튼을 놓거나 취소한 시민의 복구 진행 상태를 제거한다. */
   cancelRepair(playerId: string): void { this.repairStarts.delete(playerId); }
-  /** 마피아 전용 환풍구 이동 권한을 검증한다. */
-  useVent(team: RoleTeam, position: Vector3Data): Vector3Data { this.require(team === "MAFIA" && near(position, VENT_ENTRANCE_POSITION), "환풍구 권한 또는 거리가 올바르지 않습니다."); return { ...VENT_EXIT_POSITION }; }
+  /** 마피아가 양쪽 환풍구 입구 중 가까운 쪽에서 반대편 출구로 이동한다. */
+  useVent(team: RoleTeam, position: Vector3Data): Vector3Data {
+    this.require(team === "MAFIA", "환풍구는 마피아만 사용할 수 있습니다.");
+    if (near(position, VENT_ENTRANCE_POSITION)) return { ...VENT_EXIT_POSITION };
+    if (near(position, VENT_EXIT_POSITION)) return { ...VENT_ENTRANCE_POSITION, y: VENT_EXIT_POSITION.y };
+    throw new Error("환풍구 권한 또는 거리가 올바르지 않습니다.");
+  }
   /** 시민이 셔터 가까이에서 열고 닫게 한다. */
   toggleDoor(team: RoleTeam, position: Vector3Data): void { this.require(team === "SURVIVOR" && near(position, SECURITY_SHUTTER_POSITION) && this.state.doorState !== "LOCKED", "셔터 개폐 조건을 만족하지 않습니다."); this.state.doorState = this.state.doorState === "OPEN" ? "CLOSED" : "OPEN"; this.state.doorLocked = false; }
   /** 마피아가 닫힌 셔터를 잠가 시민을 고립시킨다. */
@@ -47,8 +57,60 @@ export class EnvironmentSystem {
     this.state.taskProgress = Math.min(100, this.state.taskProgress + 25);
     return this.state.taskProgress >= 100;
   }
+  /** 시민의 보안 카드 방향 패턴과 단말 거리를 검증해 공통 임무를 누적한다. */
+  completeSecurityCardTask(playerId: string, team: RoleTeam, position: Vector3Data, pattern: string[]): boolean {
+    this.require(team === "SURVIVOR" && near(position, SECURITY_CARD_POSITION) && !this.securityCardCompletedPlayers.has(playerId) && pattern.length === SECURITY_CARD_PATTERN.length && pattern.every((direction, index) => direction === SECURITY_CARD_PATTERN[index]), "보안 카드 인증 조건을 만족하지 않습니다.");
+    this.securityCardCompletedPlayers.add(playerId);
+    this.state.taskProgress = Math.min(100, this.state.taskProgress + 25);
+    return this.state.taskProgress >= 100;
+  }
+  /** 시민이 서쪽 보급 상자에서 아직 완료하지 않은 운송 물품을 획득한다. */
+  pickupCargo(playerId: string, team: RoleTeam, position: Vector3Data): void {
+    this.require(team === "SURVIVOR" && near(position, CARGO_PICKUP_POSITION) && !this.cargoCarriers.has(playerId) && !this.cargoCompletedPlayers.has(playerId), "물품 획득 조건을 만족하지 않습니다.");
+    this.cargoCarriers.add(playerId);
+  }
+  /** 시민이 획득한 물품을 동쪽 통신실 납품대까지 운송해 공동 임무를 진행한다.
+   * @returns 이번 납품으로 공동 임무가 완료됐는지 여부
+   */
+  deliverCargo(playerId: string, team: RoleTeam, position: Vector3Data): boolean {
+    this.require(team === "SURVIVOR" && near(position, CARGO_DELIVERY_POSITION) && this.cargoCarriers.has(playerId) && !this.cargoCompletedPlayers.has(playerId), "물품 납품 조건을 만족하지 않습니다.");
+    this.cargoCarriers.delete(playerId);
+    this.cargoCompletedPlayers.add(playerId);
+    this.state.taskProgress = Math.min(100, this.state.taskProgress + 25);
+    return this.state.taskProgress >= 100;
+  }
+  /** 사망·추방·연결 해제로 운송을 계속할 수 없는 참가자의 물품을 보급 상자로 되돌린다. @returns 변경 여부 */
+  releaseInactiveCargo(activePlayerIds: Iterable<string>): boolean {
+    const active = new Set(activePlayerIds);
+    const before = this.cargoCarriers.size;
+    for (const playerId of this.cargoCarriers) if (!active.has(playerId)) this.cargoCarriers.delete(playerId);
+    return before !== this.cargoCarriers.size;
+  }
+  /** 시민이 바라보는 앞쪽에 한 판당 한 번만 바리케이드를 설치하고 경보를 울린다. */
+  deployBarricade(playerId: string, team: RoleTeam, position: Vector3Data, rotation: number, now: number, canPlace: (position: Vector3Data) => boolean): void {
+    const placement = { x: position.x - Math.sin(rotation) * 2, y: 0.8, z: position.z - Math.cos(rotation) * 2 };
+    this.require(team === "SURVIVOR" && !this.barricadeUsers.has(playerId) && BARRICADE_USES_PER_SURVIVOR === 1 && canPlace(placement), "바리케이드 설치 조건을 만족하지 않습니다.");
+    this.barricadeUsers.add(playerId);
+    this.state.barricades.push({ id: `barricade-${playerId}`, ownerId: playerId, position: placement, expiresAt: now + BARRICADE_DURATION_MS });
+    this.state.alarmActive = true;
+  }
+  /** 마피아가 가까운 활성 바리케이드를 해체해 우회 경로를 만든다. */
+  dismantleNearestBarricade(team: RoleTeam, position: Vector3Data): void {
+    const barricade = this.state.barricades.find((item) => near(position, item.position));
+    this.require(team === "MAFIA" && barricade !== undefined, "바리케이드 해체 조건을 만족하지 않습니다.");
+    this.state.barricades = this.state.barricades.filter((item) => item.id !== barricade.id);
+    this.state.alarmActive = this.state.barricades.length > 0;
+  }
+  /** 만료 시각을 지난 바리케이드를 자동 해제한다. @returns 환경 상태 변경 여부 */
+  advance(now: number): boolean {
+    const active = this.state.barricades.filter((barricade) => barricade.expiresAt > now);
+    if (active.length === this.state.barricades.length) return false;
+    this.state.barricades = active;
+    this.state.alarmActive = active.length > 0;
+    return true;
+  }
   private ready(id: string, now: number): boolean { const last = this.cooldowns.get(id) ?? -Infinity; if (now - last < 1000) return false; this.cooldowns.set(id, now); return true; }
   private require(condition: boolean, message: string): asserts condition { if (!condition) throw new Error(message); }
 }
 /** 두 위치가 상호작용 거리 안인지 확인한다. */
-function near(left: Vector3Data, right: Vector3Data): boolean { return Math.hypot(left.x - right.x, left.z - right.z) <= 2; }
+function near(left: Vector3Data, right: Vector3Data): boolean { return Math.hypot(left.x - right.x, left.z - right.z) <= INTERACTION_RANGE; }
