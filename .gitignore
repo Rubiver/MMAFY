@@ -1,0 +1,10 @@
+# 브라우저 검증 산출물
+docs/screenshots/
+.playwright-mcp/
+
+# 운영체제와 편집기 임시 파일
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
