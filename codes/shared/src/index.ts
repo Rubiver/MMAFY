@@ -8,7 +8,7 @@ export type DeviceState = "READY" | "ACTIVE" | "OFFLINE";
 export type InteractableState = {
   id: string;
   name: string;
-  type: "GENERATOR" | "DOOR" | "LADDER" | "VENT" | "BELL" | "TASK_PANEL" | "SECURITY_CARD" | "CCTV" | "COMMUNICATIONS" | "CARGO_PICKUP" | "CARGO_DELIVERY";
+  type: "GENERATOR" | "DOOR" | "LADDER" | "VENT" | "BELL" | "TASK_PANEL" | "SECURITY_CARD" | "COOP_TASK" | "CCTV" | "COMMUNICATIONS" | "CARGO_PICKUP" | "CARGO_DELIVERY";
   position: Vector3Data;
   interactionRange: number;
   currentState: DeviceState;
@@ -78,6 +78,10 @@ export const CARGO_PICKUP_POSITION: Vector3Data = { x: -72, y: 0, z: 12 };
 export const CARGO_DELIVERY_POSITION: Vector3Data = { x: 42, y: 0, z: 42 };
 /** 중앙 복도 보안 카드 인증 단말 위치다. */
 export const SECURITY_CARD_POSITION: Vector3Data = { x: 18, y: 0, z: 18 };
+/** 북쪽 중앙 교량에서 두 시민이 함께 작동할 동기화 단말 위치다. */
+export const COOPERATIVE_TASK_POSITION: Vector3Data = { x: -5, y: 0, z: -27.5 };
+/** 협동 임무에 두 시민이 함께 머물러야 하는 시간이다. */
+export const COOPERATIVE_TASK_DURATION_MS = 5_000;
 /** 서쪽 산장 출입구의 시민 개폐·마피아 잠금 셔터 위치다. */
 export const SECURITY_SHUTTER_POSITION: Vector3Data = { x: -36, y: 0, z: -30 };
 export const SECURITY_SHUTTER_COLLIDER: WorldCollider = { id: "security-shutter", position: { x: -36, y: 1.5, z: -30 }, size: { x: 0.5, y: 3, z: 3.2 } };
@@ -126,6 +130,7 @@ export const INTERACTION_COLLIDERS: readonly WorldCollider[] = [
   { id: "generator-a", position: { x: GENERATOR_POSITIONS["generator-a"].x, y: 0.65, z: GENERATOR_POSITIONS["generator-a"].z }, size: { x: 1.1, y: 1.3, z: 0.8 } },
   { id: "generator-b", position: { x: GENERATOR_POSITIONS["generator-b"].x, y: 0.65, z: GENERATOR_POSITIONS["generator-b"].z }, size: { x: 1.1, y: 1.3, z: 0.8 } },
   { id: "maintenance-ladder", position: { x: 72, y: 1.4, z: -36 }, size: { x: 0.45, y: 2.8, z: 0.2 } },
+  { id: "cooperative-task", position: { x: COOPERATIVE_TASK_POSITION.x, y: 0.8, z: COOPERATIVE_TASK_POSITION.z }, size: { x: 1.4, y: 1.6, z: 0.8 } },
   ...TREE_POSITIONS.map((position, index) => ({ id: `tree-${index + 1}`, position: { x: position.x, y: 1.8, z: position.z }, size: { x: 1.1, y: 3.6, z: 1.1 } })),
 ];
 
@@ -176,7 +181,7 @@ export type ClientMessage =
   | { type: "START_VOTING" }
   | { type: "VOTE"; targetId: string | "SKIP" }
   | { type: "CHAT"; text: string }
-  | { type: "ENVIRONMENT"; action: "SABOTAGE" | "REPAIR_START" | "REPAIR_COMPLETE" | "REPAIR_CANCEL" | "VENT" | "TASK" | "SECURITY_CARD_TASK" | "DOOR_TOGGLE" | "DOOR_LOCK" | "CCTV_OPEN" | "CCTV_CLOSE" | "COMM_SABOTAGE" | "COMM_REPAIR" | "BARRICADE_DEPLOY" | "BARRICADE_DISMANTLE" | "CARGO_PICKUP" | "CARGO_DELIVER"; deviceId?: GeneratorId; puzzle?: string[] }
+  | { type: "ENVIRONMENT"; action: "SABOTAGE" | "REPAIR_START" | "REPAIR_COMPLETE" | "REPAIR_CANCEL" | "VENT" | "TASK" | "SECURITY_CARD_TASK" | "COOP_TASK_START" | "COOP_TASK_CANCEL" | "DOOR_TOGGLE" | "DOOR_LOCK" | "CCTV_OPEN" | "CCTV_CLOSE" | "COMM_SABOTAGE" | "COMM_REPAIR" | "BARRICADE_DEPLOY" | "BARRICADE_DISMANTLE" | "CARGO_PICKUP" | "CARGO_DELIVER"; deviceId?: GeneratorId; puzzle?: string[] }
   | { type: "MOVE"; direction: { x: number; z: number }; rotation: number; run: boolean; sequence: number }
   | { type: "PING" };
 
@@ -193,4 +198,4 @@ export type ServerMessage =
   | { type: "PONG" };
 
 /** 서버가 동기화하는 환경 장치 상태다. */
-export type EnvironmentState = { blackout: boolean; generatorOnline: boolean; generators: Record<GeneratorId, boolean>; cctvOnline: boolean; communicationsOnline: boolean; doorLocked: boolean; doorState: DoorState; taskProgress: number; alarmActive: boolean; barricades: BarricadeState[]; cargoCarrierIds: string[]; cargoCompletedIds: string[]; securityCardCompletedIds: string[] };
+export type EnvironmentState = { blackout: boolean; generatorOnline: boolean; generators: Record<GeneratorId, boolean>; cctvOnline: boolean; communicationsOnline: boolean; doorLocked: boolean; doorState: DoorState; taskProgress: number; alarmActive: boolean; barricades: BarricadeState[]; cargoCarrierIds: string[]; cargoCompletedIds: string[]; securityCardCompletedIds: string[]; cooperativeParticipantIds: string[]; cooperativeProgress: number; cooperativeCompleted: boolean };

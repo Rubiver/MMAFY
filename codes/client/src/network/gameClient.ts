@@ -47,7 +47,7 @@ export class GameClient {
   vote(targetId: string | "SKIP"): void { this.send({ type: "VOTE", targetId }); }
   /** 회의 중 모든 생존자에게 보일 짧은 채팅을 요청한다. */
   chat(text: string): void { this.send({ type: "CHAT", text }); }
-  environment(action: "SABOTAGE" | "REPAIR_START" | "REPAIR_COMPLETE" | "REPAIR_CANCEL" | "VENT" | "TASK" | "SECURITY_CARD_TASK" | "DOOR_TOGGLE" | "DOOR_LOCK" | "CCTV_OPEN" | "CCTV_CLOSE" | "COMM_SABOTAGE" | "COMM_REPAIR" | "BARRICADE_DEPLOY" | "BARRICADE_DISMANTLE" | "CARGO_PICKUP" | "CARGO_DELIVER", deviceId?: GeneratorId, puzzle?: string[]): void { this.send({ type: "ENVIRONMENT", action, deviceId, puzzle }); }
+  environment(action: "SABOTAGE" | "REPAIR_START" | "REPAIR_COMPLETE" | "REPAIR_CANCEL" | "VENT" | "TASK" | "SECURITY_CARD_TASK" | "COOP_TASK_START" | "COOP_TASK_CANCEL" | "DOOR_TOGGLE" | "DOOR_LOCK" | "CCTV_OPEN" | "CCTV_CLOSE" | "COMM_SABOTAGE" | "COMM_REPAIR" | "BARRICADE_DEPLOY" | "BARRICADE_DISMANTLE" | "CARGO_PICKUP" | "CARGO_DELIVER", deviceId?: GeneratorId, puzzle?: string[]): void { this.send({ type: "ENVIRONMENT", action, deviceId, puzzle }); }
   /** 입력 순번을 포함한 이동 요청을 서버에 보낸다. */
   move(direction: { x: number; z: number }, rotation: number, run: boolean, sequence: number): void { this.send({ type: "MOVE", direction, rotation, run, sequence }); }
 

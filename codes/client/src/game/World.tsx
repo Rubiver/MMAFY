@@ -3,7 +3,7 @@ import { Billboard, Outlines, PointerLockControls, Text } from "@react-three/dre
 import { Canvas, useFrame, useThree, type RootState } from "@react-three/fiber";
 import { CuboidCollider, Physics, RigidBody } from "@react-three/rapier";
 import * as THREE from "three";
-import { BARRICADE_COLLIDER_SIZE, CARGO_DELIVERY_POSITION, CARGO_PICKUP_POSITION, CCTV_CONSOLE_POSITION, CIRCUIT_PANEL_POSITION, COMMUNICATIONS_CONSOLE_POSITION, EMERGENCY_BELL_POSITION, GENERATOR_POSITIONS, KILL_RANGE, REPAIR_HOLD_DURATION_MS, SECURITY_CARD_POSITION, SECURITY_SHUTTER_POSITION, SURVIVOR_BLACKOUT_VIEW_DISTANCE, TREE_POSITIONS, VENT_ENTRANCE_POSITION, VENT_EXIT_POSITION, WORLD_COLLIDERS, WORLD_DEPTH, WORLD_WIDTH, type GeneratorId, type InteractableState, type Vector3Data } from "@mafia/shared";
+import { BARRICADE_COLLIDER_SIZE, CARGO_DELIVERY_POSITION, CARGO_PICKUP_POSITION, CCTV_CONSOLE_POSITION, CIRCUIT_PANEL_POSITION, COMMUNICATIONS_CONSOLE_POSITION, COOPERATIVE_TASK_POSITION, EMERGENCY_BELL_POSITION, GENERATOR_POSITIONS, KILL_RANGE, REPAIR_HOLD_DURATION_MS, SECURITY_CARD_POSITION, SECURITY_SHUTTER_POSITION, SURVIVOR_BLACKOUT_VIEW_DISTANCE, TREE_POSITIONS, VENT_ENTRANCE_POSITION, VENT_EXIT_POSITION, WORLD_COLLIDERS, WORLD_DEPTH, WORLD_WIDTH, type GeneratorId, type InteractableState, type Vector3Data } from "@mafia/shared";
 import { getActiveGameClient } from "../network/gameClient";
 import { useGameStore } from "../store/gameStore";
 import { GAME_CONFIG } from "./config";
@@ -21,6 +21,7 @@ const devices: InteractableState[] = [
   { id: "emergency-bell", name: "긴급 회의 종", type: "BELL", position: EMERGENCY_BELL_POSITION, interactionRange: 2.4, currentState: "READY" },
   { id: "circuit-panel", name: "회로 제어반", type: "TASK_PANEL", position: CIRCUIT_PANEL_POSITION, interactionRange: 2.4, currentState: "READY" },
   { id: "security-card", name: "보안 카드 단말", type: "SECURITY_CARD", position: SECURITY_CARD_POSITION, interactionRange: 2.4, currentState: "READY" },
+  { id: "cooperative-task", name: "교량 동기화 단말", type: "COOP_TASK", position: COOPERATIVE_TASK_POSITION, interactionRange: 2.4, currentState: "READY" },
   { id: "cargo-pickup", name: "서쪽 숲 보급 상자", type: "CARGO_PICKUP", position: CARGO_PICKUP_POSITION, interactionRange: 2.4, currentState: "READY" },
   { id: "cargo-delivery", name: "통신실 납품대", type: "CARGO_DELIVERY", position: CARGO_DELIVERY_POSITION, interactionRange: 2.4, currentState: "READY" },
   { id: "security-shutter", name: "보안 셔터", type: "DOOR", position: SECURITY_SHUTTER_POSITION, interactionRange: 2.4, currentState: "READY" },
@@ -61,7 +62,7 @@ function Barricades() {
  * @returns 장치 메시와 조명
  */
 function Device({ device }: { device: InteractableState }) {
-  const colors = { GENERATOR: "#f4b942", DOOR: "#4ca7e8", LADDER: "#81c784", VENT: "#a78bfa", BELL: "#facc15", TASK_PANEL: "#22d3ee", SECURITY_CARD: "#38bdf8", CCTV: "#67e8f9", COMMUNICATIONS: "#f472b6", CARGO_PICKUP: "#fb923c", CARGO_DELIVERY: "#34d399" };
+  const colors = { GENERATOR: "#f4b942", DOOR: "#4ca7e8", LADDER: "#81c784", VENT: "#a78bfa", BELL: "#facc15", TASK_PANEL: "#22d3ee", SECURITY_CARD: "#38bdf8", COOP_TASK: "#2dd4bf", CCTV: "#67e8f9", COMMUNICATIONS: "#f472b6", CARGO_PICKUP: "#fb923c", CARGO_DELIVERY: "#34d399" };
   const nearbyDeviceId = useGameStore((state) => state.nearbyDevice?.id);
   const role = useGameStore((state) => state.role);
   const blackout = useGameStore((state) => state.environment?.blackout ?? false);
@@ -70,9 +71,11 @@ function Device({ device }: { device: InteractableState }) {
   const communicationsOnline = useGameStore((state) => state.environment?.communicationsOnline ?? true);
   const cargoCarriers = useGameStore((state) => state.environment?.cargoCarrierIds) ?? [];
   const cargoCompleted = useGameStore((state) => state.environment?.cargoCompletedIds) ?? [];
+  const cooperativeCompleted = useGameStore((state) => state.environment?.cooperativeCompleted ?? false);
   const playerId = useGameStore((state) => state.playerId);
-  const usable = nearbyDeviceId === device.id && (device.type === "BELL" || (device.type === "TASK_PANEL" || device.type === "SECURITY_CARD") && role === "SURVIVOR" || device.type === "CARGO_PICKUP" && role === "SURVIVOR" && !cargoCarriers.includes(playerId ?? "") && !cargoCompleted.includes(playerId ?? "") || device.type === "CARGO_DELIVERY" && role === "SURVIVOR" && cargoCarriers.includes(playerId ?? "") || device.type === "CCTV" && role === "SURVIVOR" && cctvOnline || device.type === "COMMUNICATIONS" && role === "SURVIVOR" && !communicationsOnline || device.type === "DOOR" && (role === "MAFIA" && doorState === "CLOSED" || role === "SURVIVOR" && doorState !== "LOCKED") || device.type === "VENT" && role === "MAFIA" || device.type === "GENERATOR" && role === "SURVIVOR" && blackout);
-  const highlightSize: [number, number, number] = device.type === "BELL" ? [1.5, 2.3, 1.5] : device.type === "TASK_PANEL" ? [1.4, 2.1, 0.8] : [1.5, 2, 1.3];
+  const usable = nearbyDeviceId === device.id && (device.type === "BELL" || (device.type === "TASK_PANEL" || device.type === "SECURITY_CARD") && role === "SURVIVOR" || device.type === "COOP_TASK" && role === "SURVIVOR" && !blackout && !cooperativeCompleted || device.type === "CARGO_PICKUP" && role === "SURVIVOR" && !cargoCarriers.includes(playerId ?? "") && !cargoCompleted.includes(playerId ?? "") || device.type === "CARGO_DELIVERY" && role === "SURVIVOR" && cargoCarriers.includes(playerId ?? "") || device.type === "CCTV" && role === "SURVIVOR" && cctvOnline || device.type === "COMMUNICATIONS" && role === "SURVIVOR" && !communicationsOnline || device.type === "DOOR" && (role === "MAFIA" && doorState === "CLOSED" || role === "SURVIVOR" && doorState !== "LOCKED") || device.type === "VENT" && role === "MAFIA" || device.type === "GENERATOR" && role === "SURVIVOR" && blackout);
+  const highlightSize: [number, number, number] = device.type === "BELL" ? [1.5, 2.3, 1.5] : device.type === "TASK_PANEL" || device.type === "COOP_TASK" ? [1.4, 2.1, 0.8] : [1.5, 2, 1.3];
+  if (device.type === "COOP_TASK") return <group position={[device.position.x, 0, device.position.z]}><group position={[0, 0.85, 0]}><mesh castShadow><boxGeometry args={[1.4, 1.6, 0.8]} /><meshStandardMaterial color="#115e59" metalness={0.45} roughness={0.35} /></mesh><mesh position={[-0.34, 0.1, -0.42]}><circleGeometry args={[0.18, 24]} /><meshStandardMaterial color="#5eead4" emissive="#14b8a6" emissiveIntensity={1.1} /></mesh><mesh position={[0.34, 0.1, -0.42]}><circleGeometry args={[0.18, 24]} /><meshStandardMaterial color="#99f6e4" emissive="#2dd4bf" emissiveIntensity={1.1} /></mesh><Text position={[0, 1.2, 0]} fontSize={0.2} color="#ccfbf1" anchorX="center">교량 동기화</Text></group>{usable ? <lineSegments position={[0, 1.05, 0]} renderOrder={10}><edgesGeometry args={[new THREE.BoxGeometry(...highlightSize)]} /><lineBasicMaterial color="#fde047" depthTest={false} /></lineSegments> : null}<pointLight color={usable ? "#fde047" : colors.COOP_TASK} intensity={usable ? 4 : 2} distance={usable ? 7 : 5} position={[0, 1.8, 0]} /></group>;
   return <group position={[device.position.x, 0, device.position.z]}>{device.type === "LADDER" ? <Block position={[0, 1.4, 0]} size={[0.45, 2.8, 0.2]} color={colors.LADDER} /> : null}{device.type === "GENERATOR" ? <Block position={[0, 0.65, 0]} size={[1.1, 1.3, 0.8]} color={colors.GENERATOR} /> : null}{device.type === "DOOR" && doorState !== "OPEN" ? <Block position={[0, 1.5, 0]} size={[0.5, 3, 3.2]} color={doorState === "LOCKED" ? "#ef4444" : colors.DOOR} /> : null}{device.type === "VENT" ? <group position={[0, 0.12, 0]}><mesh><cylinderGeometry args={[1.05, 1.05, 0.22, 24]} /><meshStandardMaterial color={colors.VENT} metalness={0.7} roughness={0.28} /></mesh></group> : null}{device.type === "BELL" ? <group position={[0, 1.05, 0]}><mesh castShadow><sphereGeometry args={[0.55, 20, 16, 0, Math.PI * 2, 0, Math.PI / 2]} /><meshStandardMaterial color={colors.BELL} /></mesh><Text position={[0, 1.05, 0]} fontSize={0.24} color="#fff7cc" anchorX="center">긴급 회의 종</Text></group> : null}{device.type === "TASK_PANEL" ? <group position={[0, 1, 0]}><mesh castShadow><boxGeometry args={[1.1, 1.7, 0.32]} /><meshStandardMaterial color="#164e63" /></mesh><Text position={[0, 1.25, 0]} fontSize={0.22} color="#cffafe" anchorX="center">회로 제어반</Text></group> : null}{device.type === "SECURITY_CARD" ? <group position={[0, 0.9, 0]}><mesh castShadow><boxGeometry args={[1.25, 1.45, 0.42]} /><meshStandardMaterial color="#0c4a6e" metalness={0.35} /></mesh><mesh position={[0, 0.15, -0.23]}><planeGeometry args={[0.86, 0.52]} /><meshStandardMaterial color="#38bdf8" emissive="#0284c7" emissiveIntensity={0.8} /></mesh><Text position={[0, 1.18, 0]} fontSize={0.21} color="#e0f2fe" anchorX="center">보안 카드</Text></group> : null}{device.type === "CARGO_PICKUP" ? <group position={[0, 0.55, 0]}><mesh castShadow><boxGeometry args={[1.4, 1.1, 1]} /><meshStandardMaterial color="#9a5b25" /></mesh><Text position={[0, 1.35, 0]} fontSize={0.21} color="#ffedd5" anchorX="center">보급 상자</Text></group> : null}{device.type === "CARGO_DELIVERY" ? <group position={[0, 0.7, 0]}><mesh castShadow><boxGeometry args={[1.6, 1.4, 0.6]} /><meshStandardMaterial color="#166534" /></mesh><Text position={[0, 1.55, 0]} fontSize={0.21} color="#d1fae5" anchorX="center">통신실 납품대</Text></group> : null}{device.type === "CCTV" ? <group position={[0, 1.05, 0]}><mesh castShadow><boxGeometry args={[1.5, 1.5, 0.45]} /><meshStandardMaterial color="#152b40" metalness={0.45} /></mesh><mesh position={[0, 0.08, -0.24]}><planeGeometry args={[1.16, 0.76]} /><meshStandardMaterial color={cctvOnline ? "#155e75" : "#172033"} emissive={cctvOnline ? "#0e7490" : "#000000"} emissiveIntensity={cctvOnline ? 0.8 : 0} /></mesh><Text position={[0, 1.35, 0]} fontSize={0.21} color="#cffafe" anchorX="center">CCTV 관제대</Text></group> : null}{usable ? <lineSegments position={[0, highlightSize[1] / 2, 0]} renderOrder={10}><edgesGeometry args={[new THREE.BoxGeometry(...highlightSize)]} /><lineBasicMaterial color="#fde047" depthTest={false} /></lineSegments> : null}<pointLight color={usable ? "#fde047" : colors[device.type]} intensity={usable ? 4 : 2} distance={usable ? 7 : 5} position={[0, 1.8, 0]} /></group>;
 }
 
@@ -117,12 +120,14 @@ function PlayerController() {
   const setSecurityCardPanelOpen = useGameStore((state) => state.setSecurityCardPanelOpen);
   const setCctvOpen = useGameStore((state) => state.setCctvOpen);
   const lifeState = useGameStore((state) => state.room?.players.find((item) => item.id === state.playerId)?.lifeState);
+  const cooperativeCompleted = useGameStore((state) => state.environment?.cooperativeCompleted ?? false);
   const { camera, gl } = useThree();
   const lastSendAt = useRef(0);
   const sequence = useRef(0);
   const repairTimer = useRef<number | undefined>(undefined);
   const repairProgressTimer = useRef<number | undefined>(undefined);
   const repairActive = useRef(false);
+  const cooperativeActive = useRef(false);
   const repairStartedAt = useRef(0);
   const aimedTargetId = useRef<string | undefined>(undefined);
   const manuallySelectedTargetId = useRef<string | undefined>(undefined);
@@ -169,6 +174,7 @@ function PlayerController() {
       if (device.type === "BELL") { setInteractionMessage("긴급 회의 종을 울립니다."); getActiveGameClient()?.callMeeting(); return; }
       if (device.type === "TASK_PANEL") { if (state.role !== "SURVIVOR") setInteractionMessage("회로 제어반은 시민만 사용할 수 있습니다."); else { document.exitPointerLock(); setTaskPanelOpen(true); } return; }
       if (device.type === "SECURITY_CARD") { if (state.role !== "SURVIVOR") setInteractionMessage("보안 카드 인증은 시민만 수행할 수 있습니다."); else if (state.environment?.securityCardCompletedIds.includes(state.playerId ?? "")) setInteractionMessage("이번 판의 보안 카드 인증을 이미 완료했습니다."); else { document.exitPointerLock(); setSecurityCardPanelOpen(true); } return; }
+      if (device.type === "COOP_TASK") { if (state.role !== "SURVIVOR") setInteractionMessage("교량 동기화는 시민만 수행할 수 있습니다."); else if (state.environment?.blackout) setInteractionMessage("정전 중에는 교량 동기화를 시작할 수 없습니다."); else if (state.environment?.cooperativeCompleted) setInteractionMessage("교량 동기화 임무를 이미 완료했습니다."); else { cooperativeActive.current = true; setInteractionMessage("[E]를 유지하세요 · 다른 시민 한 명이 더 필요합니다."); getActiveGameClient()?.environment("COOP_TASK_START"); } return; }
       if (device.type === "CARGO_PICKUP") { if (state.role !== "SURVIVOR") setInteractionMessage("보급 물품은 시민만 획득할 수 있습니다."); else { setInteractionMessage("보급 물품 획득을 서버에 요청합니다."); getActiveGameClient()?.environment("CARGO_PICKUP"); } return; }
       if (device.type === "CARGO_DELIVERY") { if (state.role !== "SURVIVOR") setInteractionMessage("납품은 시민만 할 수 있습니다."); else { setInteractionMessage("통신실 납품을 서버에 요청합니다."); getActiveGameClient()?.environment("CARGO_DELIVER"); } return; }
       if (device.type === "CCTV") { if (state.role !== "SURVIVOR" || !state.environment?.cctvOnline) setInteractionMessage("CCTV는 전력이 정상일 때 시민만 사용할 수 있습니다."); else { document.exitPointerLock(); getActiveGameClient()?.environment("CCTV_OPEN"); setCctvOpen(true); } return; }
@@ -194,7 +200,9 @@ function PlayerController() {
     /** 키를 이동 입력 집합에서 제거하고 진행 중인 복구를 취소한다. */
     const onKeyUp = (event: KeyboardEvent) => {
       pressed.current.delete(event.code);
-      if (event.code !== "KeyE" || !repairActive.current) return;
+      if (event.code !== "KeyE") return;
+      if (cooperativeActive.current) { cooperativeActive.current = false; getActiveGameClient()?.environment("COOP_TASK_CANCEL"); setInteractionMessage("교량 동기화 참여를 중단했습니다."); return; }
+      if (!repairActive.current) return;
       repairActive.current = false;
       if (repairTimer.current !== undefined) { window.clearTimeout(repairTimer.current); repairTimer.current = undefined; }
       if (repairProgressTimer.current !== undefined) { window.clearInterval(repairProgressTimer.current); repairProgressTimer.current = undefined; }
@@ -209,12 +217,18 @@ function PlayerController() {
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
     window.addEventListener("mousedown", onMouseDown, true);
-    return () => { window.removeEventListener("keydown", onKeyDown); window.removeEventListener("keyup", onKeyUp); window.removeEventListener("mousedown", onMouseDown, true); if (repairTimer.current !== undefined) window.clearTimeout(repairTimer.current); if (repairProgressTimer.current !== undefined) window.clearInterval(repairProgressTimer.current); setRepairProgress(0); if (repairActive.current) getActiveGameClient()?.environment("REPAIR_CANCEL"); };
+    return () => { window.removeEventListener("keydown", onKeyDown); window.removeEventListener("keyup", onKeyUp); window.removeEventListener("mousedown", onMouseDown, true); if (repairTimer.current !== undefined) window.clearTimeout(repairTimer.current); if (repairProgressTimer.current !== undefined) window.clearInterval(repairProgressTimer.current); setRepairProgress(0); if (repairActive.current) getActiveGameClient()?.environment("REPAIR_CANCEL"); if (cooperativeActive.current) getActiveGameClient()?.environment("COOP_TASK_CANCEL"); };
   }, [camera, gl, setAimedKillTarget, setInteractionMessage, setRepairProgress]);
 
   useEffect(() => {
     if (lifeState !== "ALIVE" && document.pointerLockElement === gl.domElement) document.exitPointerLock();
   }, [gl, lifeState]);
+
+  useEffect(() => {
+    if (!cooperativeCompleted || !cooperativeActive.current) return;
+    cooperativeActive.current = false;
+    setInteractionMessage("교량 동기화를 완료했습니다. 공통 임무가 25% 진행됐습니다.");
+  }, [cooperativeCompleted, setInteractionMessage]);
 
   useFrame((_state, delta) => {
     const state = useGameStore.getState();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CARGO_DELIVERY_POSITION, CARGO_PICKUP_POSITION, CCTV_CONSOLE_POSITION, CIRCUIT_PANEL_POSITION, GENERATOR_POSITIONS, SECURITY_CARD_POSITION, SECURITY_SHUTTER_POSITION, VENT_ENTRANCE_POSITION, VENT_EXIT_POSITION } from "@mafia/shared";
+import { CARGO_DELIVERY_POSITION, CARGO_PICKUP_POSITION, CCTV_CONSOLE_POSITION, CIRCUIT_PANEL_POSITION, COOPERATIVE_TASK_POSITION, GENERATOR_POSITIONS, SECURITY_CARD_POSITION, SECURITY_SHUTTER_POSITION, VENT_ENTRANCE_POSITION, VENT_EXIT_POSITION } from "@mafia/shared";
 import { EnvironmentSystem } from "./environment.js";
 
 const generator = { ...GENERATOR_POSITIONS["generator-a"], y: 1.4 };
@@ -24,7 +24,7 @@ describe("EnvironmentSystem", () => {
     environment.sabotage("mafia", "MAFIA", "generator-b", 1_000);
     environment.completeCircuitTask("survivor", "SURVIVOR", CIRCUIT_PANEL_POSITION, ["AMBER", "CYAN", "VIOLET"]);
     environment.reset();
-    expect(environment.snapshot()).toEqual({ blackout: false, generatorOnline: true, generators: { "generator-a": true, "generator-b": true }, cctvOnline: true, communicationsOnline: true, doorLocked: false, doorState: "OPEN", taskProgress: 0, alarmActive: false, barricades: [], cargoCarrierIds: [], cargoCompletedIds: [], securityCardCompletedIds: [] });
+    expect(environment.snapshot()).toEqual({ blackout: false, generatorOnline: true, generators: { "generator-a": true, "generator-b": true }, cctvOnline: true, communicationsOnline: true, doorLocked: false, doorState: "OPEN", taskProgress: 0, alarmActive: false, barricades: [], cargoCarrierIds: [], cargoCompletedIds: [], securityCardCompletedIds: [], cooperativeParticipantIds: [], cooperativeProgress: 0, cooperativeCompleted: false });
   });
 
   it("3초보다 일찍 복구 완료를 요청하면 정전이 유지된다", () => {
@@ -63,6 +63,33 @@ describe("EnvironmentSystem", () => {
     expect(environment.completeSecurityCardTask("survivor", "SURVIVOR", SECURITY_CARD_POSITION, ["LEFT", "UP", "RIGHT", "DOWN"])).toBe(false);
     expect(environment.snapshot()).toMatchObject({ taskProgress: 25, securityCardCompletedIds: ["survivor"] });
     expect(() => environment.completeSecurityCardTask("survivor", "SURVIVOR", SECURITY_CARD_POSITION, ["LEFT", "UP", "RIGHT", "DOWN"])).toThrow("보안 카드 인증");
+  });
+
+  it("두 시민이 동기화 단말에서 5초간 함께 유지해야 협동 임무를 완료한다", () => {
+    const environment = new EnvironmentSystem();
+    const players = [{ id: "survivor-a", position: COOPERATIVE_TASK_POSITION }, { id: "survivor-b", position: COOPERATIVE_TASK_POSITION }];
+    environment.startCooperativeTask("survivor-a", "SURVIVOR", COOPERATIVE_TASK_POSITION, 1_000);
+    expect(environment.advanceCooperativeTask(players, 6_000)).toMatchObject({ completed: false });
+    expect(environment.snapshot()).toMatchObject({ cooperativeParticipantIds: ["survivor-a"], cooperativeProgress: 0, taskProgress: 0 });
+    environment.startCooperativeTask("survivor-b", "SURVIVOR", COOPERATIVE_TASK_POSITION, 6_000);
+    expect(environment.advanceCooperativeTask(players, 10_999)).toMatchObject({ completed: false });
+    expect(environment.snapshot().cooperativeProgress).toBeCloseTo(0.9998);
+    expect(environment.advanceCooperativeTask(players, 11_000)).toEqual({ changed: true, completed: true });
+    expect(environment.snapshot()).toMatchObject({ cooperativeParticipantIds: [], cooperativeProgress: 1, cooperativeCompleted: true, taskProgress: 25 });
+  });
+
+  it("협동 임무는 이탈·사망·정전 때 연속 진행을 취소한다", () => {
+    const environment = new EnvironmentSystem();
+    const both = [{ id: "survivor-a", position: COOPERATIVE_TASK_POSITION }, { id: "survivor-b", position: COOPERATIVE_TASK_POSITION }];
+    environment.startCooperativeTask("survivor-a", "SURVIVOR", COOPERATIVE_TASK_POSITION, 1_000);
+    environment.startCooperativeTask("survivor-b", "SURVIVOR", COOPERATIVE_TASK_POSITION, 1_000);
+    environment.advanceCooperativeTask(both, 3_000);
+    environment.advanceCooperativeTask([both[0]], 3_001);
+    expect(environment.snapshot()).toMatchObject({ cooperativeParticipantIds: ["survivor-a"], cooperativeProgress: 0 });
+    environment.startCooperativeTask("survivor-b", "SURVIVOR", COOPERATIVE_TASK_POSITION, 4_000);
+    environment.sabotage("mafia", "MAFIA", "generator-a", 4_001);
+    expect(environment.snapshot()).toMatchObject({ blackout: true, cooperativeParticipantIds: [], cooperativeProgress: 0, cooperativeCompleted: false });
+    expect(() => environment.startCooperativeTask("survivor-a", "SURVIVOR", COOPERATIVE_TASK_POSITION, 5_000)).toThrow("협동 임무 시작");
   });
 
   it("시민은 셔터를 개폐하고 마피아는 닫힌 셔터를 잠근다", () => {

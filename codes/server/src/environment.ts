@@ -1,5 +1,5 @@
-import { BARRICADE_DURATION_MS, BARRICADE_USES_PER_SURVIVOR, CARGO_DELIVERY_POSITION, CARGO_PICKUP_POSITION, CCTV_CONSOLE_POSITION, CIRCUIT_PANEL_POSITION, COMMUNICATIONS_CONSOLE_POSITION, GENERATOR_POSITIONS, INTERACTION_RANGE, REPAIR_HOLD_DURATION_MS, SECURITY_CARD_POSITION, SECURITY_SHUTTER_POSITION, VENT_ENTRANCE_POSITION, VENT_EXIT_POSITION, type EnvironmentState, type GeneratorId, type RoleTeam, type Vector3Data } from "@mafia/shared";
-const INITIAL_STATE: EnvironmentState = { blackout: false, generatorOnline: true, generators: { "generator-a": true, "generator-b": true }, cctvOnline: true, communicationsOnline: true, doorLocked: false, doorState: "OPEN", taskProgress: 0, alarmActive: false, barricades: [], cargoCarrierIds: [], cargoCompletedIds: [], securityCardCompletedIds: [] };
+import { BARRICADE_DURATION_MS, BARRICADE_USES_PER_SURVIVOR, CARGO_DELIVERY_POSITION, CARGO_PICKUP_POSITION, CCTV_CONSOLE_POSITION, CIRCUIT_PANEL_POSITION, COMMUNICATIONS_CONSOLE_POSITION, COOPERATIVE_TASK_DURATION_MS, COOPERATIVE_TASK_POSITION, GENERATOR_POSITIONS, INTERACTION_RANGE, REPAIR_HOLD_DURATION_MS, SECURITY_CARD_POSITION, SECURITY_SHUTTER_POSITION, VENT_ENTRANCE_POSITION, VENT_EXIT_POSITION, type EnvironmentState, type GeneratorId, type RoleTeam, type Vector3Data } from "@mafia/shared";
+const INITIAL_STATE: EnvironmentState = { blackout: false, generatorOnline: true, generators: { "generator-a": true, "generator-b": true }, cctvOnline: true, communicationsOnline: true, doorLocked: false, doorState: "OPEN", taskProgress: 0, alarmActive: false, barricades: [], cargoCarrierIds: [], cargoCompletedIds: [], securityCardCompletedIds: [], cooperativeParticipantIds: [], cooperativeProgress: 0, cooperativeCompleted: false };
 const CIRCUIT_ORDER = ["AMBER", "CYAN", "VIOLET"] as const;
 const SECURITY_CARD_PATTERN = ["LEFT", "UP", "RIGHT", "DOWN"] as const;
 
@@ -14,13 +14,15 @@ export class EnvironmentSystem {
   private readonly cargoCarriers = new Set<string>();
   private readonly cargoCompletedPlayers = new Set<string>();
   private readonly securityCardCompletedPlayers = new Set<string>();
+  private readonly cooperativeParticipants = new Set<string>();
+  private cooperativeActiveSince?: number;
 
   /** 현재 환경 상태의 복사본을 반환한다. */
-  snapshot(): EnvironmentState { return { ...this.state, generators: { ...this.state.generators }, barricades: this.state.barricades.map((barricade) => ({ ...barricade, position: { ...barricade.position } })), cargoCarrierIds: [...this.cargoCarriers], cargoCompletedIds: [...this.cargoCompletedPlayers], securityCardCompletedIds: [...this.securityCardCompletedPlayers] }; }
+  snapshot(): EnvironmentState { return { ...this.state, generators: { ...this.state.generators }, barricades: this.state.barricades.map((barricade) => ({ ...barricade, position: { ...barricade.position } })), cargoCarrierIds: [...this.cargoCarriers], cargoCompletedIds: [...this.cargoCompletedPlayers], securityCardCompletedIds: [...this.securityCardCompletedPlayers], cooperativeParticipantIds: [...this.cooperativeParticipants] }; }
   /** 새 게임 시작 전에 모든 장치를 정상 상태로 되돌린다. */
-  reset(): void { this.state = { ...INITIAL_STATE, generators: { ...INITIAL_STATE.generators }, barricades: [], cargoCarrierIds: [], cargoCompletedIds: [], securityCardCompletedIds: [] }; this.cooldowns.clear(); this.repairStarts.clear(); this.completedCircuitPlayers.clear(); this.cctvOperators.clear(); this.barricadeUsers.clear(); this.cargoCarriers.clear(); this.cargoCompletedPlayers.clear(); this.securityCardCompletedPlayers.clear(); }
+  reset(): void { this.state = { ...INITIAL_STATE, generators: { ...INITIAL_STATE.generators }, barricades: [], cargoCarrierIds: [], cargoCompletedIds: [], securityCardCompletedIds: [], cooperativeParticipantIds: [] }; this.cooldowns.clear(); this.repairStarts.clear(); this.completedCircuitPlayers.clear(); this.cctvOperators.clear(); this.barricadeUsers.clear(); this.cargoCarriers.clear(); this.cargoCompletedPlayers.clear(); this.securityCardCompletedPlayers.clear(); this.cooperativeParticipants.clear(); this.cooperativeActiveSince = undefined; }
   /** 마피아만 원격으로 지정한 발전기를 고장 내 정전을 시작할 수 있다. */
-  sabotage(playerId: string, team: RoleTeam, generatorId: GeneratorId, now: number): void { this.require(team === "MAFIA" && !this.state.blackout && this.state.generators[generatorId] && this.ready(playerId, now), "정전 조건을 만족하지 않습니다."); this.state.blackout = true; this.state.generatorOnline = false; this.state.generators[generatorId] = false; this.state.cctvOnline = false; this.cctvOperators.clear(); }
+  sabotage(playerId: string, team: RoleTeam, generatorId: GeneratorId, now: number): void { this.require(team === "MAFIA" && !this.state.blackout && this.state.generators[generatorId] && this.ready(playerId, now), "정전 조건을 만족하지 않습니다."); this.state.blackout = true; this.state.generatorOnline = false; this.state.generators[generatorId] = false; this.state.cctvOnline = false; this.cctvOperators.clear(); this.clearCooperativeTask(); }
   /** 시민이 발전기 근처에서 복구 버튼 유지를 시작한다. */
   startRepair(playerId: string, team: RoleTeam, generatorId: GeneratorId, position: Vector3Data, now: number): void { this.require(team === "SURVIVOR" && this.state.blackout && !this.state.generators[generatorId] && near(position, GENERATOR_POSITIONS[generatorId]), "복구 시작 조건을 만족하지 않습니다."); this.repairStarts.set(playerId, now); }
   /** 시민이 3초간 복구 버튼을 유지했는지 확인하고 정전을 해제한다. */
@@ -63,6 +65,42 @@ export class EnvironmentSystem {
     this.securityCardCompletedPlayers.add(playerId);
     this.state.taskProgress = Math.min(100, this.state.taskProgress + 25);
     return this.state.taskProgress >= 100;
+  }
+  /** 시민이 동기화 단말 범위에서 협동 임무 참여를 시작한다. */
+  startCooperativeTask(playerId: string, team: RoleTeam, position: Vector3Data, now: number): void {
+    this.require(team === "SURVIVOR" && !this.state.blackout && !this.state.cooperativeCompleted && near(position, COOPERATIVE_TASK_POSITION), "협동 임무 시작 조건을 만족하지 않습니다.");
+    this.cooperativeParticipants.add(playerId);
+    if (this.cooperativeParticipants.size >= 2 && this.cooperativeActiveSince === undefined) this.cooperativeActiveSince = now;
+  }
+  /** 버튼을 놓은 시민을 협동 임무 참여자에서 제거하고 인원이 부족하면 연속 진행을 취소한다. */
+  cancelCooperativeTask(playerId: string): void {
+    this.cooperativeParticipants.delete(playerId);
+    if (this.cooperativeParticipants.size < 2) { this.cooperativeActiveSince = undefined; this.state.cooperativeProgress = 0; }
+  }
+  /** 서버가 현재 생존·접속·거리 조건을 다시 검사해 협동 임무를 진행한다.
+   * @param eligiblePlayers 현재 역할·생존·접속 조건을 만족하는 시민 목록
+   * @param now 현재 서버 시각
+   * @returns 환경 변경 여부와 이번 호출의 임무 완료 여부
+   */
+  advanceCooperativeTask(eligiblePlayers: { id: string; position: Vector3Data }[], now: number): { changed: boolean; completed: boolean } {
+    const beforeIds = [...this.cooperativeParticipants].join(",");
+    const beforeProgress = this.state.cooperativeProgress;
+    const eligible = new Set(eligiblePlayers.filter((player) => near(player.position, COOPERATIVE_TASK_POSITION)).map((player) => player.id));
+    for (const playerId of this.cooperativeParticipants) if (!eligible.has(playerId)) this.cooperativeParticipants.delete(playerId);
+    if (this.state.blackout || this.cooperativeParticipants.size < 2) { this.cooperativeActiveSince = undefined; this.state.cooperativeProgress = 0; }
+    else {
+      this.cooperativeActiveSince ??= now;
+      this.state.cooperativeProgress = Math.min(1, (now - this.cooperativeActiveSince) / COOPERATIVE_TASK_DURATION_MS);
+    }
+    if (!this.state.cooperativeCompleted && this.state.cooperativeProgress >= 1) {
+      this.state.cooperativeCompleted = true;
+      this.state.taskProgress = Math.min(100, this.state.taskProgress + 25);
+      this.cooperativeParticipants.clear();
+      this.cooperativeActiveSince = undefined;
+      this.state.cooperativeProgress = 1;
+      return { changed: true, completed: true };
+    }
+    return { changed: beforeIds !== [...this.cooperativeParticipants].join(",") || beforeProgress !== this.state.cooperativeProgress, completed: false };
   }
   /** 시민이 서쪽 보급 상자에서 아직 완료하지 않은 운송 물품을 획득한다. */
   pickupCargo(playerId: string, team: RoleTeam, position: Vector3Data): void {
@@ -110,6 +148,8 @@ export class EnvironmentSystem {
     return true;
   }
   private ready(id: string, now: number): boolean { const last = this.cooldowns.get(id) ?? -Infinity; if (now - last < 1000) return false; this.cooldowns.set(id, now); return true; }
+  /** 정전 등으로 협동 임무 참여자와 연속 진행 시간을 모두 비운다. */
+  private clearCooperativeTask(): void { this.cooperativeParticipants.clear(); this.cooperativeActiveSince = undefined; this.state.cooperativeProgress = 0; }
   private require(condition: boolean, message: string): asserts condition { if (!condition) throw new Error(message); }
 }
 /** 두 위치가 상호작용 거리 안인지 확인한다. */
