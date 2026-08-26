@@ -82,6 +82,8 @@ export const SECURITY_CARD_POSITION: Vector3Data = { x: 18, y: 0, z: 18 };
 export const COOPERATIVE_TASK_POSITION: Vector3Data = { x: -5, y: 0, z: -27.5 };
 /** 협동 임무에 두 시민이 함께 머물러야 하는 시간이다. */
 export const COOPERATIVE_TASK_DURATION_MS = 5_000;
+/** 시민이 두 발전기에서 과부하를 해제할 수 있는 제한 시간이다. */
+export const CRITICAL_SABOTAGE_DURATION_MS = 60_000;
 /** 서쪽 산장 출입구의 시민 개폐·마피아 잠금 셔터 위치다. */
 export const SECURITY_SHUTTER_POSITION: Vector3Data = { x: -36, y: 0, z: -30 };
 export const SECURITY_SHUTTER_COLLIDER: WorldCollider = { id: "security-shutter", position: { x: -36, y: 1.5, z: -30 }, size: { x: 0.5, y: 3, z: 3.2 } };
@@ -181,7 +183,7 @@ export type ClientMessage =
   | { type: "START_VOTING" }
   | { type: "VOTE"; targetId: string | "SKIP" }
   | { type: "CHAT"; text: string }
-  | { type: "ENVIRONMENT"; action: "SABOTAGE" | "REPAIR_START" | "REPAIR_COMPLETE" | "REPAIR_CANCEL" | "VENT" | "TASK" | "SECURITY_CARD_TASK" | "COOP_TASK_START" | "COOP_TASK_CANCEL" | "DOOR_TOGGLE" | "DOOR_LOCK" | "CCTV_OPEN" | "CCTV_CLOSE" | "COMM_SABOTAGE" | "COMM_REPAIR" | "BARRICADE_DEPLOY" | "BARRICADE_DISMANTLE" | "CARGO_PICKUP" | "CARGO_DELIVER"; deviceId?: GeneratorId; puzzle?: string[] }
+  | { type: "ENVIRONMENT"; action: "SABOTAGE" | "CRITICAL_SABOTAGE" | "CRITICAL_REPAIR" | "REPAIR_START" | "REPAIR_COMPLETE" | "REPAIR_CANCEL" | "VENT" | "TASK" | "SECURITY_CARD_TASK" | "COOP_TASK_START" | "COOP_TASK_CANCEL" | "DOOR_TOGGLE" | "DOOR_LOCK" | "CCTV_OPEN" | "CCTV_CLOSE" | "COMM_SABOTAGE" | "COMM_REPAIR" | "BARRICADE_DEPLOY" | "BARRICADE_DISMANTLE" | "CARGO_PICKUP" | "CARGO_DELIVER"; deviceId?: GeneratorId; puzzle?: string[] }
   | { type: "MOVE"; direction: { x: number; z: number }; rotation: number; run: boolean; sequence: number }
   | { type: "PING" };
 
@@ -198,4 +200,4 @@ export type ServerMessage =
   | { type: "PONG" };
 
 /** 서버가 동기화하는 환경 장치 상태다. */
-export type EnvironmentState = { blackout: boolean; generatorOnline: boolean; generators: Record<GeneratorId, boolean>; cctvOnline: boolean; communicationsOnline: boolean; doorLocked: boolean; doorState: DoorState; taskProgress: number; alarmActive: boolean; barricades: BarricadeState[]; cargoCarrierIds: string[]; cargoCompletedIds: string[]; securityCardCompletedIds: string[]; cooperativeParticipantIds: string[]; cooperativeProgress: number; cooperativeCompleted: boolean };
+export type EnvironmentState = { blackout: boolean; generatorOnline: boolean; generators: Record<GeneratorId, boolean>; cctvOnline: boolean; communicationsOnline: boolean; doorLocked: boolean; doorState: DoorState; taskProgress: number; alarmActive: boolean; barricades: BarricadeState[]; cargoCarrierIds: string[]; cargoCompletedIds: string[]; securityCardCompletedIds: string[]; cooperativeParticipantIds: string[]; cooperativeProgress: number; cooperativeCompleted: boolean; criticalSabotageEndsAt?: number; criticalRepairedGeneratorIds: GeneratorId[] };

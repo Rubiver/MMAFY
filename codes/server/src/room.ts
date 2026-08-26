@@ -214,6 +214,8 @@ export class GameRoom {
   killCooldownRemainingMs(playerId: string, now: number): number { const player = this.getPlayer(playerId); return this.roles.get(playerId) === "MAFIA" ? Math.max(0, player.killCooldownEndsAt - now) : 0; }
   /** 시민 공통 임무가 모두 끝났을 때 서버가 시민 승리를 확정한다. */
   completeTaskVictory(): void { if (this.gameState !== "PLAYING") throw new RoomError("INVALID_MESSAGE", "임무 승리를 확정할 수 없는 상태입니다."); this.result = { winner: "SURVIVOR" }; this.gameState = "GAME_OVER"; }
+  /** 긴급 시설 복구 제한 시간이 끝났을 때 서버가 마피아 승리를 확정한다. */
+  completeSabotageVictory(): void { if (this.gameState !== "PLAYING") throw new RoomError("INVALID_MESSAGE", "시설 승리를 확정할 수 없는 상태입니다."); this.result = { winner: "MAFIA" }; this.gameState = "GAME_OVER"; }
   /** 설치 후보가 맵·참가자·기존 바리케이드와 겹치지 않는지 서버에서 확인한다. */
   canPlaceBarricade(position: Vector3Data, barricades: BarricadeState[], _ownerId: string): boolean {
     const halfWidth = BARRICADE_COLLIDER_SIZE.x / 2 + PLAYER_COLLISION_RADIUS;

@@ -24,7 +24,7 @@ describe("EnvironmentSystem", () => {
     environment.sabotage("mafia", "MAFIA", "generator-b", 1_000);
     environment.completeCircuitTask("survivor", "SURVIVOR", CIRCUIT_PANEL_POSITION, ["AMBER", "CYAN", "VIOLET"]);
     environment.reset();
-    expect(environment.snapshot()).toEqual({ blackout: false, generatorOnline: true, generators: { "generator-a": true, "generator-b": true }, cctvOnline: true, communicationsOnline: true, doorLocked: false, doorState: "OPEN", taskProgress: 0, alarmActive: false, barricades: [], cargoCarrierIds: [], cargoCompletedIds: [], securityCardCompletedIds: [], cooperativeParticipantIds: [], cooperativeProgress: 0, cooperativeCompleted: false });
+    expect(environment.snapshot()).toEqual({ blackout: false, generatorOnline: true, generators: { "generator-a": true, "generator-b": true }, cctvOnline: true, communicationsOnline: true, doorLocked: false, doorState: "OPEN", taskProgress: 0, alarmActive: false, barricades: [], cargoCarrierIds: [], cargoCompletedIds: [], securityCardCompletedIds: [], cooperativeParticipantIds: [], cooperativeProgress: 0, cooperativeCompleted: false, criticalSabotageEndsAt: undefined, criticalRepairedGeneratorIds: [] });
   });
 
   it("3초보다 일찍 복구 완료를 요청하면 정전이 유지된다", () => {
@@ -39,6 +39,27 @@ describe("EnvironmentSystem", () => {
     const environment = new EnvironmentSystem();
     environment.sabotage("mafia", "MAFIA", "generator-b", 1_000);
     expect(() => environment.startRepair("survivor", "SURVIVOR", "generator-a", generator, 2_000)).toThrow("복구 시작");
+  });
+
+  it("마피아 긴급 과부하는 두 발전기를 멈추고 시민이 양쪽을 복구하면 해제된다", () => {
+    const environment = new EnvironmentSystem();
+    expect(() => environment.sabotageCritical("survivor", "SURVIVOR", 1_000)).toThrow("핵심 전력 과부하");
+    environment.sabotageCritical("mafia", "MAFIA", 1_000);
+    expect(environment.snapshot()).toMatchObject({ criticalSabotageEndsAt: 61_000, generatorOnline: false, generators: { "generator-a": false, "generator-b": false }, cctvOnline: false, criticalRepairedGeneratorIds: [] });
+    expect(() => environment.startCooperativeTask("survivor", "SURVIVOR", COOPERATIVE_TASK_POSITION, 2_000)).toThrow("협동 임무 시작");
+    expect(() => environment.repairCritical("SURVIVOR", "generator-a", GENERATOR_POSITIONS["generator-b"])).toThrow("긴급 과부하 복구");
+    expect(environment.repairCritical("SURVIVOR", "generator-a", GENERATOR_POSITIONS["generator-a"])).toBe(false);
+    expect(environment.snapshot()).toMatchObject({ generators: { "generator-a": true, "generator-b": false }, criticalRepairedGeneratorIds: ["generator-a"] });
+    expect(environment.repairCritical("SURVIVOR", "generator-b", GENERATOR_POSITIONS["generator-b"])).toBe(true);
+    expect(environment.snapshot()).toMatchObject({ criticalSabotageEndsAt: undefined, generatorOnline: true, generators: { "generator-a": true, "generator-b": true }, cctvOnline: true, criticalRepairedGeneratorIds: [] });
+  });
+
+  it("긴급 과부하 제한 시간이 끝나면 마피아 승리 신호를 한 번 반환한다", () => {
+    const environment = new EnvironmentSystem();
+    environment.sabotageCritical("mafia", "MAFIA", 1_000);
+    expect(environment.advanceCriticalSabotage(60_999)).toEqual({ changed: false, mafiaWon: false });
+    expect(environment.advanceCriticalSabotage(61_000)).toEqual({ changed: true, mafiaWon: true });
+    expect(environment.advanceCriticalSabotage(61_001)).toEqual({ changed: false, mafiaWon: false });
   });
 
   it("마피아는 양쪽 환풍구에서 반대편 출구로 이동할 수 있다", () => {

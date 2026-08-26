@@ -282,6 +282,14 @@ describe("GameRoom", () => {
     expect(room.snapshot()).toMatchObject({ gameState: "GAME_OVER", result: { winner: "SURVIVOR" } });
   });
 
+  it("긴급 시설 제한 시간 실패는 서버가 마피아 승리로 확정한다", () => {
+    const room = new GameRoom("test");
+    room.join("host", "마피아", undefined, 0); room.join("survivor", "시민", undefined, 0);
+    room.setReady("host", true); room.setReady("survivor", true); room.setMafiaCount("host", 1); room.startGame("host", 0);
+    room.completeSabotageVictory();
+    expect(room.snapshot()).toMatchObject({ gameState: "GAME_OVER", result: { winner: "MAFIA" } });
+  });
+
   it("유예 시간 안에는 재접속 상태를 복구한다", () => {
     const room = new GameRoom("test");
     const joined = room.join("before", "기존", undefined, 0);
