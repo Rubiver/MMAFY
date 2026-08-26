@@ -4,11 +4,11 @@
 
 ## 문서 우선순위
 
-작업 전 반드시 [docs/RULES.md](docs/RULES.md)를 읽는다. 제품 목표는 [docs/PRD.md](docs/PRD.md), 기술 설계는 [docs/DETAIL_SPEC.md](docs/DETAIL_SPEC.md), 구현 순서는 `docs/phases/`의 각 문서에서 확인한다.
+작업 전 반드시 [docs/RULES.md](docs/RULES.md)를 읽는다. 제품 목표는 [docs/PRD.md](docs/PRD.md), 기술 설계는 [docs/DETAIL_SPEC.md](docs/DETAIL_SPEC.md), 구현 순서는 `docs/phases/`의 각 문서에서 확인한다. 후속 콘텐츠 개발은 [docs/CONTENT_BACKLOG.md](docs/CONTENT_BACKLOG.md)의 가장 높은 `READY` 항목과 완료 기준을 따른다.
 
 ## 세션 시작 확인
 
-세션을 시작하면 작업 전 `git status`로 기존 미커밋 변경을 확인하고, Playwright MCP 연결 상태를 확인한다. 웹 화면 변경이 있으면 Playwright MCP로 375px·768px·1280px 전체 화면을 검증하고 스크린샷을 `docs/screenshots/`에 저장한다. 검증 뒤에는 MCP 탭과 MCP 전용 Chrome 프로세스만 종료한다.
+세션을 시작하면 작업 전 `git status`로 기존 미커밋 변경을 확인하고, 연결 가능한 Playwright MCP를 사용한다. 웹 화면 변경이 있으면 Playwright MCP로 375px·768px·1280px 전체 화면을 검증하고 스크린샷을 `docs/screenshots/`에 저장한다. 검증 뒤에는 MCP 탭과 MCP 전용 Chrome 프로세스만 종료한다. 현재 환경에서는 Playwright MCP를 사용할 수 있으므로, 화면 변경 검증을 임의로 생략하지 않는다.
 
 ## 저장소 구조
 
@@ -42,6 +42,14 @@ codes/                     실제 소스 코드만 두는 위치
 - 개선 또는 수정 완료 때마다 관련 변경만 즉시 한국어 커밋으로 남기며, 작업 시작 전 `git status`로 미커밋 변경을 확인한다. 세부 절차는 `docs/RULES.md`를 따른다.
 - 모호하거나 설계에 큰 영향을 주는 사항은 추정하지 말고 사용자에게 확인한다.
 
+## Playwright MCP 강제 사용 규칙
+
+- 브라우저 상호작용, UI 검증, 반응형 화면 확인, 스크린샷 촬영, E2E 확인은 반드시 Codex가 직접 Playwright MCP를 호출해서 수행한다.
+- 위 작업을 Pi Coding Agent, Codex 하위 에이전트, curl, fetch, 임의 스크립트로 대체하지 않는다.
+- Playwright MCP가 연결되어 있다고 문서에 명시된 경우, "도구가 보이지 않는다"는 이유만으로 임의 생략하지 않는다.
+- 실제 MCP 호출이 실패한 경우에만 실패한 MCP 서버 이름, 호출 단계, 오류 메시지를 사용자에게 보고한다.
+- Pi Coding Agent는 Playwright MCP의 대체 수단이 아니다.
+
 ## 로컬 Pi Coding Agent 테스트와 검증
 
 - Codex는 개발 과정에서 독립 테스트·검증, 코드 검토, 자료 조사가 필요하다고 판단하면 사용자 요청 없이 실제 Pi Coding Agent를 실행할 수 있다. Codex 하위 에이전트에 Pi 역할을 부여해 대체하지 않는다.
@@ -50,8 +58,11 @@ codes/                     실제 소스 코드만 두는 위치
 
   ```bash
   /home/ssafy/.nvm/versions/node/v24.18.0/bin/pi -p \
+    --provider llama-cpp \
     --model qwen3.8-27b \
+    --thinking medium \
     --tools read,grep,find,ls,bash \
+    --no-session \
     "<테스트 또는 검증 요청>"
   ```
 
@@ -60,3 +71,4 @@ codes/                     실제 소스 코드만 두는 위치
 - Pi가 테스트를 실행할 때는 WSL NVM 환경을 사용한다. Node.js 명령 전 `source /home/ssafy/.nvm/nvm.sh`를 실행하고, 프로젝트 `codes/`에서 `npm test`와 `npm run build`를 우선 사용한다.
 - Pi 실행 시 로컬 `llama-server`와 GPU 사용량이 증가하는 것이 정상이다. 실패하면 실행 명령과 오류를 보고하고, Codex 하위 에이전트 결과로 대체하지 않는다.
 - 상세 운영 방법은 `docs/LOCAL_PI_MULTI_AGENT.md`를 따른다.
+- Pi는 브라우저 조작, UI 캡처, 반응형 검증, Playwright 작업을 수행하지 않는다.
