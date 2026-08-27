@@ -4,6 +4,8 @@ const CIRCUIT_ORDER = ["AMBER", "CYAN", "VIOLET"] as const;
 const SECURITY_CARD_PATTERN = ["LEFT", "UP", "RIGHT", "DOWN"] as const;
 const DATA_SORT_ORDER = ["2", "4", "7", "9"] as const;
 const COOLANT_TARGET = ["30", "50", "20"] as const;
+const TASKS_PER_SURVIVOR = 2;
+const DEFAULT_REQUIRED_TASK_COUNT = 4;
 
 /** 환경 장치의 거리, 역할, 쿨타임을 서버에서 검증한다. */
 export class EnvironmentSystem {
@@ -21,11 +23,15 @@ export class EnvironmentSystem {
   private readonly cooperativeParticipants = new Set<string>();
   private cooperativeActiveSince?: number;
   private readonly criticalRepairedGenerators = new Set<GeneratorId>();
+  private completedTaskCount = 0;
+  private requiredTaskCount = DEFAULT_REQUIRED_TASK_COUNT;
 
   /** 현재 환경 상태의 복사본을 반환한다. */
   snapshot(): EnvironmentState { return { ...this.state, generators: { ...this.state.generators }, barricades: this.state.barricades.map((barricade) => ({ ...barricade, position: { ...barricade.position } })), cargoCarrierIds: [...this.cargoCarriers], cargoCompletedIds: [...this.cargoCompletedPlayers], securityCardCompletedIds: [...this.securityCardCompletedPlayers], dataSortCompletedIds: [...this.dataSortCompletedPlayers], coolantCompletedIds: [...this.coolantCompletedPlayers], cooperativeParticipantIds: [...this.cooperativeParticipants], criticalRepairedGeneratorIds: [...this.criticalRepairedGenerators] }; }
-  /** 새 게임 시작 전에 모든 장치를 정상 상태로 되돌린다. */
-  reset(): void { this.state = { ...INITIAL_STATE, generators: { ...INITIAL_STATE.generators }, barricades: [], cargoCarrierIds: [], cargoCompletedIds: [], securityCardCompletedIds: [], dataSortCompletedIds: [], coolantCompletedIds: [], cooperativeParticipantIds: [], criticalRepairedGeneratorIds: [] }; this.cooldowns.clear(); this.repairStarts.clear(); this.completedCircuitPlayers.clear(); this.cctvOperators.clear(); this.barricadeUsers.clear(); this.cargoCarriers.clear(); this.cargoCompletedPlayers.clear(); this.securityCardCompletedPlayers.clear(); this.dataSortCompletedPlayers.clear(); this.coolantCompletedPlayers.clear(); this.cooperativeParticipants.clear(); this.cooperativeActiveSince = undefined; this.criticalRepairedGenerators.clear(); }
+  /** 새 게임 시작 전에 모든 장치를 정상 상태로 되돌리고 시민 수에 맞춰 임무 목표를 정한다.
+   * @param survivorCount 게임 시작 시 확정된 시민 수. 생략하면 기존 개발 흐름을 위한 4건 목표를 사용한다.
+   */
+  reset(survivorCount?: number): void { this.state = { ...INITIAL_STATE, generators: { ...INITIAL_STATE.generators }, barricades: [], cargoCarrierIds: [], cargoCompletedIds: [], securityCardCompletedIds: [], dataSortCompletedIds: [], coolantCompletedIds: [], cooperativeParticipantIds: [], criticalRepairedGeneratorIds: [] }; this.cooldowns.clear(); this.repairStarts.clear(); this.completedCircuitPlayers.clear(); this.cctvOperators.clear(); this.barricadeUsers.clear(); this.cargoCarriers.clear(); this.cargoCompletedPlayers.clear(); this.securityCardCompletedPlayers.clear(); this.dataSortCompletedPlayers.clear(); this.coolantCompletedPlayers.clear(); this.cooperativeParticipants.clear(); this.cooperativeActiveSince = undefined; this.criticalRepairedGenerators.clear(); this.completedTaskCount = 0; this.requiredTaskCount = survivorCount === undefined ? DEFAULT_REQUIRED_TASK_COUNT : requiredTaskCount(survivorCount); }
   /** 마피아만 원격으로 지정한 발전기를 고장 내 정전을 시작할 수 있다. */
   sabotage(playerId: string, team: RoleTeam, generatorId: GeneratorId, now: number): void { this.require(team === "MAFIA" && !this.state.blackout && this.state.generators[generatorId] && this.ready(playerId, now), "정전 조건을 만족하지 않습니다."); this.state.blackout = true; this.state.generatorOnline = false; this.state.generators[generatorId] = false; this.state.cctvOnline = false; this.cctvOperators.clear(); this.clearCooperativeTask(); }
   /** 마피아가 두 발전기를 동시에 멈추고 제한 시간 긴급 과부하를 시작한다. */
@@ -94,29 +100,25 @@ export class EnvironmentSystem {
   completeCircuitTask(playerId: string, team: RoleTeam, position: Vector3Data, puzzle: string[]): boolean {
     this.require(team === "SURVIVOR" && near(position, CIRCUIT_PANEL_POSITION) && !this.completedCircuitPlayers.has(playerId) && puzzle.length === CIRCUIT_ORDER.length && puzzle.every((color, index) => color === CIRCUIT_ORDER[index]), "회로 연결 조건을 만족하지 않습니다.");
     this.completedCircuitPlayers.add(playerId);
-    this.state.taskProgress = Math.min(100, this.state.taskProgress + 25);
-    return this.state.taskProgress >= 100;
+    return this.recordTaskCompletion();
   }
   /** 시민의 보안 카드 방향 패턴과 단말 거리를 검증해 공통 임무를 누적한다. */
   completeSecurityCardTask(playerId: string, team: RoleTeam, position: Vector3Data, pattern: string[]): boolean {
     this.require(team === "SURVIVOR" && near(position, SECURITY_CARD_POSITION) && !this.securityCardCompletedPlayers.has(playerId) && pattern.length === SECURITY_CARD_PATTERN.length && pattern.every((direction, index) => direction === SECURITY_CARD_PATTERN[index]), "보안 카드 인증 조건을 만족하지 않습니다.");
     this.securityCardCompletedPlayers.add(playerId);
-    this.state.taskProgress = Math.min(100, this.state.taskProgress + 25);
-    return this.state.taskProgress >= 100;
+    return this.recordTaskCompletion();
   }
   /** 시민이 자료 묶음을 오름차순으로 정렬했는지 서버에서 검증한다. */
   completeDataSortTask(playerId: string, team: RoleTeam, position: Vector3Data, order: string[]): boolean {
     this.require(team === "SURVIVOR" && near(position, DATA_SORTER_POSITION) && !this.dataSortCompletedPlayers.has(playerId) && order.length === DATA_SORT_ORDER.length && order.every((value, index) => value === DATA_SORT_ORDER[index]), "자료 정렬 조건을 만족하지 않습니다.");
     this.dataSortCompletedPlayers.add(playerId);
-    this.state.taskProgress = Math.min(100, this.state.taskProgress + 25);
-    return this.state.taskProgress >= 100;
+    return this.recordTaskCompletion();
   }
   /** 시민이 냉각수 세 계통을 목표 비율로 맞췄는지 서버에서 검증한다. */
   completeCoolantTask(playerId: string, team: RoleTeam, position: Vector3Data, ratios: string[]): boolean {
     this.require(team === "SURVIVOR" && near(position, COOLANT_MIXER_POSITION) && !this.coolantCompletedPlayers.has(playerId) && ratios.length === COOLANT_TARGET.length && ratios.every((value, index) => value === COOLANT_TARGET[index]), "냉각수 배합 조건을 만족하지 않습니다.");
     this.coolantCompletedPlayers.add(playerId);
-    this.state.taskProgress = Math.min(100, this.state.taskProgress + 25);
-    return this.state.taskProgress >= 100;
+    return this.recordTaskCompletion();
   }
   /** 시민이 동기화 단말 범위에서 협동 임무 참여를 시작한다. */
   startCooperativeTask(playerId: string, team: RoleTeam, position: Vector3Data, now: number): void {
@@ -146,7 +148,7 @@ export class EnvironmentSystem {
     }
     if (!this.state.cooperativeCompleted && this.state.cooperativeProgress >= 1) {
       this.state.cooperativeCompleted = true;
-      this.state.taskProgress = Math.min(100, this.state.taskProgress + 25);
+      this.recordTaskCompletion();
       this.cooperativeParticipants.clear();
       this.cooperativeActiveSince = undefined;
       this.state.cooperativeProgress = 1;
@@ -166,8 +168,7 @@ export class EnvironmentSystem {
     this.require(team === "SURVIVOR" && near(position, CARGO_DELIVERY_POSITION) && this.cargoCarriers.has(playerId) && !this.cargoCompletedPlayers.has(playerId), "물품 납품 조건을 만족하지 않습니다.");
     this.cargoCarriers.delete(playerId);
     this.cargoCompletedPlayers.add(playerId);
-    this.state.taskProgress = Math.min(100, this.state.taskProgress + 25);
-    return this.state.taskProgress >= 100;
+    return this.recordTaskCompletion();
   }
   /** 사망·추방·연결 해제로 운송을 계속할 수 없는 참가자의 물품을 보급 상자로 되돌린다. @returns 변경 여부 */
   releaseInactiveCargo(activePlayerIds: Iterable<string>): boolean {
@@ -202,7 +203,14 @@ export class EnvironmentSystem {
   private ready(id: string, now: number): boolean { const last = this.cooldowns.get(id) ?? -Infinity; if (now - last < 1000) return false; this.cooldowns.set(id, now); return true; }
   /** 정전 등으로 협동 임무 참여자와 연속 진행 시간을 모두 비운다. */
   private clearCooperativeTask(): void { this.cooperativeParticipants.clear(); this.cooperativeActiveSince = undefined; this.state.cooperativeProgress = 0; }
+  /** 완료한 임무 수를 누적하고 현재 게임의 목표 대비 백분율을 소수점 첫째 자리까지 갱신한다. */
+  private recordTaskCompletion(): boolean { this.completedTaskCount = Math.min(this.requiredTaskCount, this.completedTaskCount + 1); this.state.taskProgress = Math.round(this.completedTaskCount * 1000 / this.requiredTaskCount) / 10; return this.completedTaskCount >= this.requiredTaskCount; }
   private require(condition: boolean, message: string): asserts condition { if (!condition) throw new Error(message); }
+}
+/** 시민 한 명이 평균 두 건을 맡도록 한 판의 전체 임무 완료 목표를 계산한다. */
+export function requiredTaskCount(survivorCount: number): number {
+  if (!Number.isInteger(survivorCount) || survivorCount < 1 || survivorCount > 24) throw new RangeError("시민 수는 1명부터 24명 사이여야 합니다.");
+  return survivorCount * TASKS_PER_SURVIVOR;
 }
 /** 두 위치가 상호작용 거리 안인지 확인한다. */
 function near(left: Vector3Data, right: Vector3Data): boolean { return Math.hypot(left.x - right.x, left.z - right.z) <= INTERACTION_RANGE; }

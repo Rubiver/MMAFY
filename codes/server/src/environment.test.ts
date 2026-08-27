@@ -1,10 +1,42 @@
 import { describe, expect, it } from "vitest";
 import { CARGO_DELIVERY_POSITION, CARGO_PICKUP_POSITION, COOLANT_MIXER_POSITION, CCTV_CONSOLE_POSITION, CIRCUIT_PANEL_POSITION, COOPERATIVE_TASK_POSITION, DATA_SORTER_POSITION, GENERATOR_POSITIONS, SECURITY_CARD_POSITION, SECURITY_SHUTTER_POSITION, VENT_ENTRANCE_POSITION, VENT_EXIT_POSITION } from "@mafia/shared";
-import { EnvironmentSystem } from "./environment.js";
+import { EnvironmentSystem, requiredTaskCount } from "./environment.js";
 
 const generator = { ...GENERATOR_POSITIONS["generator-a"], y: 1.4 };
 
 describe("EnvironmentSystem", () => {
+  it("시민 수에 따라 한 명당 두 건으로 임무 목표를 계산한다", () => {
+    expect(requiredTaskCount(5)).toBe(10);
+    expect(requiredTaskCount(20)).toBe(40);
+    expect(requiredTaskCount(24)).toBe(48);
+    expect(() => requiredTaskCount(0)).toThrow("시민 수");
+  });
+
+  it("최소·최대 권장 인원에서 같은 두 건의 임무 비중을 다르게 계산한다", () => {
+    const sixPlayerGame = new EnvironmentSystem();
+    sixPlayerGame.reset(5);
+    sixPlayerGame.completeCircuitTask("survivor-a", "SURVIVOR", CIRCUIT_PANEL_POSITION, ["AMBER", "CYAN", "VIOLET"]);
+    sixPlayerGame.completeCircuitTask("survivor-b", "SURVIVOR", CIRCUIT_PANEL_POSITION, ["AMBER", "CYAN", "VIOLET"]);
+    expect(sixPlayerGame.snapshot().taskProgress).toBe(20);
+
+    const twentyFivePlayerGame = new EnvironmentSystem();
+    twentyFivePlayerGame.reset(20);
+    twentyFivePlayerGame.completeCircuitTask("survivor-a", "SURVIVOR", CIRCUIT_PANEL_POSITION, ["AMBER", "CYAN", "VIOLET"]);
+    expect(twentyFivePlayerGame.snapshot().taskProgress).toBe(2.5);
+    twentyFivePlayerGame.completeCircuitTask("survivor-b", "SURVIVOR", CIRCUIT_PANEL_POSITION, ["AMBER", "CYAN", "VIOLET"]);
+    expect(twentyFivePlayerGame.snapshot().taskProgress).toBe(5);
+  });
+
+  it("시민 다섯 명은 임무 열 건을 완료해야 100퍼센트에 도달한다", () => {
+    const environment = new EnvironmentSystem();
+    environment.reset(5);
+    for (let index = 0; index < 5; index += 1) expect(environment.completeCircuitTask(`survivor-${index}`, "SURVIVOR", CIRCUIT_PANEL_POSITION, ["AMBER", "CYAN", "VIOLET"])).toBe(false);
+    for (let index = 0; index < 4; index += 1) expect(environment.completeSecurityCardTask(`survivor-${index}`, "SURVIVOR", SECURITY_CARD_POSITION, ["LEFT", "UP", "RIGHT", "DOWN"])).toBe(false);
+    expect(environment.snapshot().taskProgress).toBe(90);
+    expect(environment.completeSecurityCardTask("survivor-4", "SURVIVOR", SECURITY_CARD_POSITION, ["LEFT", "UP", "RIGHT", "DOWN"])).toBe(true);
+    expect(environment.snapshot().taskProgress).toBe(100);
+  });
+
   it("마피아가 발전기 근처에서 정전을 시작하면 전력과 CCTV를 끈다", () => {
     const environment = new EnvironmentSystem();
     environment.sabotage("mafia", "MAFIA", "generator-a", 1_000);

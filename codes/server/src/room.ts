@@ -74,8 +74,10 @@ export class GameRoom {
     player.ready = ready;
   }
 
-  /** 준비한 참가자만 있는지 확인하고 게임을 시작한다. */
-  startGame(playerId: string, now = Date.now()): void {
+  /** 준비한 참가자만 있는지 확인하고 게임을 시작한다.
+   * @returns 역할 배정이 끝난 뒤의 시민 수
+   */
+  startGame(playerId: string, now = Date.now()): number {
     if (playerId !== this.hostId) throw new RoomError("NOT_HOST", "방장만 게임을 시작할 수 있습니다.");
     const connected = [...this.players.values()].filter((player) => player.connected);
     if (connected.length === 0 || connected.some((player) => !player.ready)) throw new RoomError("NOT_READY", "접속 중인 모든 참가자가 준비해야 합니다.");
@@ -84,6 +86,7 @@ export class GameRoom {
     const spawnPositions = shuffleSpawnPositions();
     for (const [index, player] of connected.sort((left, right) => left.id.localeCompare(right.id)).entries()) { const team: RoleTeam = index < count ? "MAFIA" : "SURVIVOR"; this.roles.set(player.id, team); player.position = { ...spawnPositions[index] }; player.rotation = 0; player.killCooldownEndsAt = team === "MAFIA" ? now + INITIAL_KILL_COOLDOWN_MS : 0; }
     this.gameState = "PLAYING";
+    return connected.length - count;
   }
 
   /** 종료된 한 판의 역할과 생명 상태를 비우고 같은 참가자들을 대기실로 돌려보낸다.

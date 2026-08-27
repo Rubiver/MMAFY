@@ -16,6 +16,18 @@ function moveNear(room: GameRoom, moverId: string, targetId: string): void {
 }
 
 describe("GameRoom", () => {
+  it("게임 시작 결과로 실제 마피아 수를 제외한 시민 수를 반환한다", () => {
+    const minimumRoom = new GameRoom("minimum");
+    for (let index = 0; index < 6; index += 1) { minimumRoom.join(`min-${index}`, `참가자 ${index}`, undefined, 0); minimumRoom.setReady(`min-${index}`, true); }
+    minimumRoom.setMafiaCount("min-0", 1);
+    expect(minimumRoom.startGame("min-0", 0)).toBe(5);
+
+    const maximumRoom = new GameRoom("maximum");
+    for (let index = 0; index < 25; index += 1) { maximumRoom.join(`max-${index}`, `참가자 ${index}`, undefined, 0); maximumRoom.setReady(`max-${index}`, true); }
+    maximumRoom.setMafiaCount("max-0", 5);
+    expect(maximumRoom.startGame("max-0", 0)).toBe(20);
+  });
+
   it("최대 25명을 허용하고 초과 입장을 막는다", () => {
     const room = new GameRoom("test");
     for (let index = 0; index < MAX_PLAYERS; index += 1) room.join(`p${index}`, `참가자 ${index}`, undefined, 0);
