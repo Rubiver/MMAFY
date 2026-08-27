@@ -8,7 +8,7 @@ export type DeviceState = "READY" | "ACTIVE" | "OFFLINE";
 export type InteractableState = {
   id: string;
   name: string;
-  type: "GENERATOR" | "DOOR" | "LADDER" | "VENT" | "BELL" | "TASK_PANEL" | "SECURITY_CARD" | "COOP_TASK" | "CCTV" | "COMMUNICATIONS" | "CARGO_PICKUP" | "CARGO_DELIVERY";
+  type: "GENERATOR" | "DOOR" | "LADDER" | "VENT" | "BELL" | "TASK_PANEL" | "SECURITY_CARD" | "DATA_SORTER" | "COOLANT_MIXER" | "COOP_TASK" | "CCTV" | "COMMUNICATIONS" | "CARGO_PICKUP" | "CARGO_DELIVERY";
   position: Vector3Data;
   interactionRange: number;
   currentState: DeviceState;
@@ -78,6 +78,10 @@ export const CARGO_PICKUP_POSITION: Vector3Data = { x: -72, y: 0, z: 12 };
 export const CARGO_DELIVERY_POSITION: Vector3Data = { x: 42, y: 0, z: 42 };
 /** 중앙 복도 보안 카드 인증 단말 위치다. */
 export const SECURITY_CARD_POSITION: Vector3Data = { x: 18, y: 0, z: 18 };
+/** 서쪽 숲 남쪽 작업대의 자료 정렬 단말 위치다. */
+export const DATA_SORTER_POSITION: Vector3Data = { x: -28, y: 0, z: 18 };
+/** 동쪽 산업 지대 북쪽 설비의 냉각수 배합기 위치다. */
+export const COOLANT_MIXER_POSITION: Vector3Data = { x: 48, y: 0, z: -8 };
 /** 북쪽 중앙 교량에서 두 시민이 함께 작동할 동기화 단말 위치다. */
 export const COOPERATIVE_TASK_POSITION: Vector3Data = { x: -5, y: 0, z: -27.5 };
 /** 협동 임무에 두 시민이 함께 머물러야 하는 시간이다. */
@@ -183,7 +187,7 @@ export type ClientMessage =
   | { type: "START_VOTING" }
   | { type: "VOTE"; targetId: string | "SKIP" }
   | { type: "CHAT"; text: string }
-  | { type: "ENVIRONMENT"; action: "SABOTAGE" | "CRITICAL_SABOTAGE" | "CRITICAL_REPAIR" | "REPAIR_START" | "REPAIR_COMPLETE" | "REPAIR_CANCEL" | "VENT" | "TASK" | "SECURITY_CARD_TASK" | "COOP_TASK_START" | "COOP_TASK_CANCEL" | "DOOR_TOGGLE" | "DOOR_LOCK" | "CCTV_OPEN" | "CCTV_CLOSE" | "COMM_SABOTAGE" | "COMM_REPAIR" | "BARRICADE_DEPLOY" | "BARRICADE_DISMANTLE" | "CARGO_PICKUP" | "CARGO_DELIVER"; deviceId?: GeneratorId; puzzle?: string[] }
+  | { type: "ENVIRONMENT"; action: "SABOTAGE" | "CRITICAL_SABOTAGE" | "CRITICAL_REPAIR" | "REPAIR_START" | "REPAIR_COMPLETE" | "REPAIR_CANCEL" | "VENT" | "TASK" | "SECURITY_CARD_TASK" | "DATA_SORT_TASK" | "COOLANT_TASK" | "COOP_TASK_START" | "COOP_TASK_CANCEL" | "DOOR_TOGGLE" | "DOOR_LOCK" | "CCTV_OPEN" | "CCTV_CLOSE" | "COMM_SABOTAGE" | "COMM_REPAIR" | "BARRICADE_DEPLOY" | "BARRICADE_DISMANTLE" | "CARGO_PICKUP" | "CARGO_DELIVER"; deviceId?: GeneratorId; puzzle?: string[] }
   | { type: "MOVE"; direction: { x: number; z: number }; rotation: number; run: boolean; sequence: number }
   | { type: "PING" };
 
@@ -200,4 +204,4 @@ export type ServerMessage =
   | { type: "PONG" };
 
 /** 서버가 동기화하는 환경 장치 상태다. */
-export type EnvironmentState = { blackout: boolean; generatorOnline: boolean; generators: Record<GeneratorId, boolean>; cctvOnline: boolean; communicationsOnline: boolean; doorLocked: boolean; doorState: DoorState; taskProgress: number; alarmActive: boolean; barricades: BarricadeState[]; cargoCarrierIds: string[]; cargoCompletedIds: string[]; securityCardCompletedIds: string[]; cooperativeParticipantIds: string[]; cooperativeProgress: number; cooperativeCompleted: boolean; criticalSabotageEndsAt?: number; criticalRepairedGeneratorIds: GeneratorId[] };
+export type EnvironmentState = { blackout: boolean; generatorOnline: boolean; generators: Record<GeneratorId, boolean>; cctvOnline: boolean; communicationsOnline: boolean; doorLocked: boolean; doorState: DoorState; taskProgress: number; alarmActive: boolean; barricades: BarricadeState[]; cargoCarrierIds: string[]; cargoCompletedIds: string[]; securityCardCompletedIds: string[]; dataSortCompletedIds: string[]; coolantCompletedIds: string[]; cooperativeParticipantIds: string[]; cooperativeProgress: number; cooperativeCompleted: boolean; criticalSabotageEndsAt?: number; criticalRepairedGeneratorIds: GeneratorId[] };

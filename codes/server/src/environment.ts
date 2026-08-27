@@ -1,7 +1,9 @@
-import { BARRICADE_DURATION_MS, BARRICADE_USES_PER_SURVIVOR, CARGO_DELIVERY_POSITION, CARGO_PICKUP_POSITION, CRITICAL_SABOTAGE_DURATION_MS, CCTV_CONSOLE_POSITION, CIRCUIT_PANEL_POSITION, COMMUNICATIONS_CONSOLE_POSITION, COOPERATIVE_TASK_DURATION_MS, COOPERATIVE_TASK_POSITION, GENERATOR_POSITIONS, INTERACTION_RANGE, REPAIR_HOLD_DURATION_MS, SECURITY_CARD_POSITION, SECURITY_SHUTTER_POSITION, VENT_ENTRANCE_POSITION, VENT_EXIT_POSITION, type EnvironmentState, type GeneratorId, type RoleTeam, type Vector3Data } from "@mafia/shared";
-const INITIAL_STATE: EnvironmentState = { blackout: false, generatorOnline: true, generators: { "generator-a": true, "generator-b": true }, cctvOnline: true, communicationsOnline: true, doorLocked: false, doorState: "OPEN", taskProgress: 0, alarmActive: false, barricades: [], cargoCarrierIds: [], cargoCompletedIds: [], securityCardCompletedIds: [], cooperativeParticipantIds: [], cooperativeProgress: 0, cooperativeCompleted: false, criticalSabotageEndsAt: undefined, criticalRepairedGeneratorIds: [] };
+import { BARRICADE_DURATION_MS, BARRICADE_USES_PER_SURVIVOR, CARGO_DELIVERY_POSITION, CARGO_PICKUP_POSITION, COOLANT_MIXER_POSITION, CRITICAL_SABOTAGE_DURATION_MS, CCTV_CONSOLE_POSITION, CIRCUIT_PANEL_POSITION, COMMUNICATIONS_CONSOLE_POSITION, COOPERATIVE_TASK_DURATION_MS, COOPERATIVE_TASK_POSITION, DATA_SORTER_POSITION, GENERATOR_POSITIONS, INTERACTION_RANGE, REPAIR_HOLD_DURATION_MS, SECURITY_CARD_POSITION, SECURITY_SHUTTER_POSITION, VENT_ENTRANCE_POSITION, VENT_EXIT_POSITION, type EnvironmentState, type GeneratorId, type RoleTeam, type Vector3Data } from "@mafia/shared";
+const INITIAL_STATE: EnvironmentState = { blackout: false, generatorOnline: true, generators: { "generator-a": true, "generator-b": true }, cctvOnline: true, communicationsOnline: true, doorLocked: false, doorState: "OPEN", taskProgress: 0, alarmActive: false, barricades: [], cargoCarrierIds: [], cargoCompletedIds: [], securityCardCompletedIds: [], dataSortCompletedIds: [], coolantCompletedIds: [], cooperativeParticipantIds: [], cooperativeProgress: 0, cooperativeCompleted: false, criticalSabotageEndsAt: undefined, criticalRepairedGeneratorIds: [] };
 const CIRCUIT_ORDER = ["AMBER", "CYAN", "VIOLET"] as const;
 const SECURITY_CARD_PATTERN = ["LEFT", "UP", "RIGHT", "DOWN"] as const;
+const DATA_SORT_ORDER = ["2", "4", "7", "9"] as const;
+const COOLANT_TARGET = ["30", "50", "20"] as const;
 
 /** 환경 장치의 거리, 역할, 쿨타임을 서버에서 검증한다. */
 export class EnvironmentSystem {
@@ -14,14 +16,16 @@ export class EnvironmentSystem {
   private readonly cargoCarriers = new Set<string>();
   private readonly cargoCompletedPlayers = new Set<string>();
   private readonly securityCardCompletedPlayers = new Set<string>();
+  private readonly dataSortCompletedPlayers = new Set<string>();
+  private readonly coolantCompletedPlayers = new Set<string>();
   private readonly cooperativeParticipants = new Set<string>();
   private cooperativeActiveSince?: number;
   private readonly criticalRepairedGenerators = new Set<GeneratorId>();
 
   /** 현재 환경 상태의 복사본을 반환한다. */
-  snapshot(): EnvironmentState { return { ...this.state, generators: { ...this.state.generators }, barricades: this.state.barricades.map((barricade) => ({ ...barricade, position: { ...barricade.position } })), cargoCarrierIds: [...this.cargoCarriers], cargoCompletedIds: [...this.cargoCompletedPlayers], securityCardCompletedIds: [...this.securityCardCompletedPlayers], cooperativeParticipantIds: [...this.cooperativeParticipants], criticalRepairedGeneratorIds: [...this.criticalRepairedGenerators] }; }
+  snapshot(): EnvironmentState { return { ...this.state, generators: { ...this.state.generators }, barricades: this.state.barricades.map((barricade) => ({ ...barricade, position: { ...barricade.position } })), cargoCarrierIds: [...this.cargoCarriers], cargoCompletedIds: [...this.cargoCompletedPlayers], securityCardCompletedIds: [...this.securityCardCompletedPlayers], dataSortCompletedIds: [...this.dataSortCompletedPlayers], coolantCompletedIds: [...this.coolantCompletedPlayers], cooperativeParticipantIds: [...this.cooperativeParticipants], criticalRepairedGeneratorIds: [...this.criticalRepairedGenerators] }; }
   /** 새 게임 시작 전에 모든 장치를 정상 상태로 되돌린다. */
-  reset(): void { this.state = { ...INITIAL_STATE, generators: { ...INITIAL_STATE.generators }, barricades: [], cargoCarrierIds: [], cargoCompletedIds: [], securityCardCompletedIds: [], cooperativeParticipantIds: [], criticalRepairedGeneratorIds: [] }; this.cooldowns.clear(); this.repairStarts.clear(); this.completedCircuitPlayers.clear(); this.cctvOperators.clear(); this.barricadeUsers.clear(); this.cargoCarriers.clear(); this.cargoCompletedPlayers.clear(); this.securityCardCompletedPlayers.clear(); this.cooperativeParticipants.clear(); this.cooperativeActiveSince = undefined; this.criticalRepairedGenerators.clear(); }
+  reset(): void { this.state = { ...INITIAL_STATE, generators: { ...INITIAL_STATE.generators }, barricades: [], cargoCarrierIds: [], cargoCompletedIds: [], securityCardCompletedIds: [], dataSortCompletedIds: [], coolantCompletedIds: [], cooperativeParticipantIds: [], criticalRepairedGeneratorIds: [] }; this.cooldowns.clear(); this.repairStarts.clear(); this.completedCircuitPlayers.clear(); this.cctvOperators.clear(); this.barricadeUsers.clear(); this.cargoCarriers.clear(); this.cargoCompletedPlayers.clear(); this.securityCardCompletedPlayers.clear(); this.dataSortCompletedPlayers.clear(); this.coolantCompletedPlayers.clear(); this.cooperativeParticipants.clear(); this.cooperativeActiveSince = undefined; this.criticalRepairedGenerators.clear(); }
   /** 마피아만 원격으로 지정한 발전기를 고장 내 정전을 시작할 수 있다. */
   sabotage(playerId: string, team: RoleTeam, generatorId: GeneratorId, now: number): void { this.require(team === "MAFIA" && !this.state.blackout && this.state.generators[generatorId] && this.ready(playerId, now), "정전 조건을 만족하지 않습니다."); this.state.blackout = true; this.state.generatorOnline = false; this.state.generators[generatorId] = false; this.state.cctvOnline = false; this.cctvOperators.clear(); this.clearCooperativeTask(); }
   /** 마피아가 두 발전기를 동시에 멈추고 제한 시간 긴급 과부하를 시작한다. */
@@ -97,6 +101,20 @@ export class EnvironmentSystem {
   completeSecurityCardTask(playerId: string, team: RoleTeam, position: Vector3Data, pattern: string[]): boolean {
     this.require(team === "SURVIVOR" && near(position, SECURITY_CARD_POSITION) && !this.securityCardCompletedPlayers.has(playerId) && pattern.length === SECURITY_CARD_PATTERN.length && pattern.every((direction, index) => direction === SECURITY_CARD_PATTERN[index]), "보안 카드 인증 조건을 만족하지 않습니다.");
     this.securityCardCompletedPlayers.add(playerId);
+    this.state.taskProgress = Math.min(100, this.state.taskProgress + 25);
+    return this.state.taskProgress >= 100;
+  }
+  /** 시민이 자료 묶음을 오름차순으로 정렬했는지 서버에서 검증한다. */
+  completeDataSortTask(playerId: string, team: RoleTeam, position: Vector3Data, order: string[]): boolean {
+    this.require(team === "SURVIVOR" && near(position, DATA_SORTER_POSITION) && !this.dataSortCompletedPlayers.has(playerId) && order.length === DATA_SORT_ORDER.length && order.every((value, index) => value === DATA_SORT_ORDER[index]), "자료 정렬 조건을 만족하지 않습니다.");
+    this.dataSortCompletedPlayers.add(playerId);
+    this.state.taskProgress = Math.min(100, this.state.taskProgress + 25);
+    return this.state.taskProgress >= 100;
+  }
+  /** 시민이 냉각수 세 계통을 목표 비율로 맞췄는지 서버에서 검증한다. */
+  completeCoolantTask(playerId: string, team: RoleTeam, position: Vector3Data, ratios: string[]): boolean {
+    this.require(team === "SURVIVOR" && near(position, COOLANT_MIXER_POSITION) && !this.coolantCompletedPlayers.has(playerId) && ratios.length === COOLANT_TARGET.length && ratios.every((value, index) => value === COOLANT_TARGET[index]), "냉각수 배합 조건을 만족하지 않습니다.");
+    this.coolantCompletedPlayers.add(playerId);
     this.state.taskProgress = Math.min(100, this.state.taskProgress + 25);
     return this.state.taskProgress >= 100;
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CARGO_DELIVERY_POSITION, CARGO_PICKUP_POSITION, CCTV_CONSOLE_POSITION, CIRCUIT_PANEL_POSITION, COOPERATIVE_TASK_POSITION, GENERATOR_POSITIONS, SECURITY_CARD_POSITION, SECURITY_SHUTTER_POSITION, VENT_ENTRANCE_POSITION, VENT_EXIT_POSITION } from "@mafia/shared";
+import { CARGO_DELIVERY_POSITION, CARGO_PICKUP_POSITION, COOLANT_MIXER_POSITION, CCTV_CONSOLE_POSITION, CIRCUIT_PANEL_POSITION, COOPERATIVE_TASK_POSITION, DATA_SORTER_POSITION, GENERATOR_POSITIONS, SECURITY_CARD_POSITION, SECURITY_SHUTTER_POSITION, VENT_ENTRANCE_POSITION, VENT_EXIT_POSITION } from "@mafia/shared";
 import { EnvironmentSystem } from "./environment.js";
 
 const generator = { ...GENERATOR_POSITIONS["generator-a"], y: 1.4 };
@@ -24,7 +24,7 @@ describe("EnvironmentSystem", () => {
     environment.sabotage("mafia", "MAFIA", "generator-b", 1_000);
     environment.completeCircuitTask("survivor", "SURVIVOR", CIRCUIT_PANEL_POSITION, ["AMBER", "CYAN", "VIOLET"]);
     environment.reset();
-    expect(environment.snapshot()).toEqual({ blackout: false, generatorOnline: true, generators: { "generator-a": true, "generator-b": true }, cctvOnline: true, communicationsOnline: true, doorLocked: false, doorState: "OPEN", taskProgress: 0, alarmActive: false, barricades: [], cargoCarrierIds: [], cargoCompletedIds: [], securityCardCompletedIds: [], cooperativeParticipantIds: [], cooperativeProgress: 0, cooperativeCompleted: false, criticalSabotageEndsAt: undefined, criticalRepairedGeneratorIds: [] });
+    expect(environment.snapshot()).toEqual({ blackout: false, generatorOnline: true, generators: { "generator-a": true, "generator-b": true }, cctvOnline: true, communicationsOnline: true, doorLocked: false, doorState: "OPEN", taskProgress: 0, alarmActive: false, barricades: [], cargoCarrierIds: [], cargoCompletedIds: [], securityCardCompletedIds: [], dataSortCompletedIds: [], coolantCompletedIds: [], cooperativeParticipantIds: [], cooperativeProgress: 0, cooperativeCompleted: false, criticalSabotageEndsAt: undefined, criticalRepairedGeneratorIds: [] });
   });
 
   it("3초보다 일찍 복구 완료를 요청하면 정전이 유지된다", () => {
@@ -84,6 +84,24 @@ describe("EnvironmentSystem", () => {
     expect(environment.completeSecurityCardTask("survivor", "SURVIVOR", SECURITY_CARD_POSITION, ["LEFT", "UP", "RIGHT", "DOWN"])).toBe(false);
     expect(environment.snapshot()).toMatchObject({ taskProgress: 25, securityCardCompletedIds: ["survivor"] });
     expect(() => environment.completeSecurityCardTask("survivor", "SURVIVOR", SECURITY_CARD_POSITION, ["LEFT", "UP", "RIGHT", "DOWN"])).toThrow("보안 카드 인증");
+  });
+
+  it("자료 정렬은 시민이 단말 가까이에서 오름차순을 한 번만 제출해야 한다", () => {
+    const environment = new EnvironmentSystem();
+    expect(() => environment.completeDataSortTask("survivor", "SURVIVOR", DATA_SORTER_POSITION, ["2", "7", "4", "9"])).toThrow("자료 정렬");
+    expect(() => environment.completeDataSortTask("mafia", "MAFIA", DATA_SORTER_POSITION, ["2", "4", "7", "9"])).toThrow("자료 정렬");
+    expect(environment.completeDataSortTask("survivor", "SURVIVOR", DATA_SORTER_POSITION, ["2", "4", "7", "9"])).toBe(false);
+    expect(environment.snapshot()).toMatchObject({ taskProgress: 25, dataSortCompletedIds: ["survivor"] });
+    expect(() => environment.completeDataSortTask("survivor", "SURVIVOR", DATA_SORTER_POSITION, ["2", "4", "7", "9"])).toThrow("자료 정렬");
+  });
+
+  it("냉각수 배합은 시민이 장치 가까이에서 목표 비율을 한 번만 제출해야 한다", () => {
+    const environment = new EnvironmentSystem();
+    expect(() => environment.completeCoolantTask("survivor", "SURVIVOR", COOLANT_MIXER_POSITION, ["30", "40", "30"])).toThrow("냉각수 배합");
+    expect(() => environment.completeCoolantTask("survivor", "SURVIVOR", { x: 0, y: 0, z: 0 }, ["30", "50", "20"])).toThrow("냉각수 배합");
+    expect(environment.completeCoolantTask("survivor", "SURVIVOR", COOLANT_MIXER_POSITION, ["30", "50", "20"])).toBe(false);
+    expect(environment.snapshot()).toMatchObject({ taskProgress: 25, coolantCompletedIds: ["survivor"] });
+    expect(() => environment.completeCoolantTask("survivor", "SURVIVOR", COOLANT_MIXER_POSITION, ["30", "50", "20"])).toThrow("냉각수 배합");
   });
 
   it("두 시민이 동기화 단말에서 5초간 함께 유지해야 협동 임무를 완료한다", () => {

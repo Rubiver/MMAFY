@@ -19,6 +19,8 @@ type GameStore = {
   repairProgress: number;
   taskPanelOpen: boolean;
   securityCardPanelOpen: boolean;
+  dataSortPanelOpen: boolean;
+  coolantPanelOpen: boolean;
   cctvOpen: boolean;
   setPlayerPosition: (position: Vector3Data) => void;
   setNearbyDevice: (device?: InteractableState) => void;
@@ -35,6 +37,8 @@ type GameStore = {
   setRepairProgress: (progress: number) => void;
   setTaskPanelOpen: (open: boolean) => void;
   setSecurityCardPanelOpen: (open: boolean) => void;
+  setDataSortPanelOpen: (open: boolean) => void;
+  setCoolantPanelOpen: (open: boolean) => void;
   setCctvOpen: (open: boolean) => void;
   resetPlaySession: () => void;
 };
@@ -54,6 +58,8 @@ export const useGameStore = create<GameStore>((set) => ({
   repairProgress: 0,
   taskPanelOpen: false,
   securityCardPanelOpen: false,
+  dataSortPanelOpen: false,
+  coolantPanelOpen: false,
   cctvOpen: false,
   setRole: (role, mafiaIds) => set({ role, mafiaIds }),
   setEnvironment: (environment) => set({ environment }),
@@ -65,6 +71,8 @@ export const useGameStore = create<GameStore>((set) => ({
   setRepairProgress: (repairProgress) => set({ repairProgress: Math.min(1, Math.max(0, repairProgress)) }),
   setTaskPanelOpen: (taskPanelOpen) => set({ taskPanelOpen }),
   setSecurityCardPanelOpen: (securityCardPanelOpen) => set({ securityCardPanelOpen }),
+  setDataSortPanelOpen: (dataSortPanelOpen) => set({ dataSortPanelOpen }),
+  setCoolantPanelOpen: (coolantPanelOpen) => set({ coolantPanelOpen }),
   setCctvOpen: (cctvOpen) => set({ cctvOpen }),
   resetPlaySession: () => set({
     playerPosition: { x: 0, y: 0, z: 4 },
@@ -81,13 +89,19 @@ export const useGameStore = create<GameStore>((set) => ({
     repairProgress: 0,
     taskPanelOpen: false,
     securityCardPanelOpen: false,
+    dataSortPanelOpen: false,
+    coolantPanelOpen: false,
     cctvOpen: false,
   }),
 }));
 
 declare global {
-  interface Window { __MAFIA_QA__?: { openSecurityCard: () => void } }
+  interface Window { __MAFIA_QA__?: { openSecurityCard: () => void; openDataSort: () => void; openCoolant: () => void } }
 }
 
 /** 개발 화면 검증에서 서버 결과를 바꾸지 않고 보안 카드 화면만 여는 제한된 도우미다. */
-if (import.meta.env.DEV) window.__MAFIA_QA__ = { openSecurityCard: () => { if (document.pointerLockElement) document.exitPointerLock(); useGameStore.getState().setSecurityCardPanelOpen(true); } };
+if (import.meta.env.DEV) window.__MAFIA_QA__ = {
+  openSecurityCard: () => { if (document.pointerLockElement) document.exitPointerLock(); useGameStore.getState().setSecurityCardPanelOpen(true); },
+  openDataSort: () => { if (document.pointerLockElement) document.exitPointerLock(); useGameStore.getState().setDataSortPanelOpen(true); },
+  openCoolant: () => { if (document.pointerLockElement) document.exitPointerLock(); useGameStore.getState().setCoolantPanelOpen(true); },
+};
