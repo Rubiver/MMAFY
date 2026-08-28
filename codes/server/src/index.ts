@@ -8,6 +8,7 @@ type RoomEntry = { room: GameRoom; environment: EnvironmentSystem };
 type SocketEntry = { playerId: string; roomCode: string };
 
 const port = Number(process.env.PORT ?? 2567);
+const gameServerHost = process.env.GAME_SERVER_HOST ?? "0.0.0.0";
 const rooms = new Map<string, RoomEntry>();
 const sockets = new Map<WebSocket, SocketEntry>();
 let playerCount = 0;
@@ -70,7 +71,7 @@ function developmentMovementSpeedMultiplier(): number { return process.env.NODE_
 function normalizeRoomCode(value: string): string { return value.trim().toUpperCase(); }
 
 setInterval(() => { for (const [roomCode, entry] of rooms) { const now = Date.now(); entry.room.pruneDisconnected(now); const roomChanged = entry.room.advance(now); const snapshot = entry.room.snapshot(); const critical = entry.environment.advanceCriticalSabotage(now); if (critical.mafiaWon && snapshot.gameState === "PLAYING") entry.room.completeSabotageVictory(); const activeSurvivors = snapshot.gameState === "PLAYING" ? snapshot.players.filter((player) => player.lifeState === "ALIVE" && player.connected && entry.room.roleInfo(player.id).team === "SURVIVOR").map((player) => ({ id: player.id, position: player.position })) : []; const cooperative = entry.environment.advanceCooperativeTask(activeSurvivors, now); if (cooperative.completed && entry.environment.snapshot().taskProgress >= 100) entry.room.completeTaskVictory(); const cargoChanged = entry.environment.releaseInactiveCargo(snapshot.players.filter((player) => player.lifeState === "ALIVE" && player.connected).map((player) => player.id)); const environmentChanged = entry.environment.advance(now) || cargoChanged || cooperative.changed || critical.changed; if (roomChanged) broadcastState(roomCode); if (environmentChanged) { broadcastEnvironment(roomCode); broadcastState(roomCode); } if (snapshot.players.length === 0) rooms.delete(roomCode); } }, 250).unref();
-server.listen(port, () => console.log(`게임 서버가 ${port} 포트에서 실행 중입니다.`));
+server.listen(port, gameServerHost, () => console.log(`게임 서버가 ${gameServerHost}:${port}에서 실행 중입니다.`));
 
 /** 허용한 메시지 유형만 해석한다. @throws 형식이 올바르지 않은 경우 */
 function parseMessage(raw: string): ClientMessage {

@@ -1,5 +1,6 @@
 import type { ClientMessage, GeneratorId, RoomSnapshot, ServerMessage } from "@mafia/shared";
 import { useGameStore } from "../store/gameStore";
+import { resolveGameServerUrl } from "./gameServerUrl";
 
 type Listener = (snapshot: RoomSnapshot, playerId: string) => void;
 type ErrorListener = (message: string) => void;
@@ -54,7 +55,7 @@ export class GameClient {
   /** WebSocket을 열고 최초 입장 메시지를 보낸다. */
   private open(displayName: string, message: Extract<ClientMessage, { type: "CREATE_ROOM" | "JOIN" }>): void {
     this.socket?.close(); this.roomClosed = false; localStorage.setItem(DISPLAY_NAME_KEY, displayName);
-    this.socket = new WebSocket(import.meta.env.VITE_GAME_SERVER_URL ?? "ws://localhost:2567");
+    this.socket = new WebSocket(resolveGameServerUrl(import.meta.env.VITE_GAME_SERVER_URL));
     this.socket.addEventListener("open", () => this.send(message));
     this.socket.addEventListener("message", (event) => this.handleMessage(JSON.parse(String(event.data)) as ServerMessage));
     this.socket.addEventListener("close", () => { if (!this.roomClosed) this.onError("서버 연결이 끊겼습니다. 다시 연결해 주세요."); });
